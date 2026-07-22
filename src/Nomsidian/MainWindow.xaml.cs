@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -26,14 +27,14 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _externalChangeTimer;
     private readonly List<string> _navigationHistory = new();
     private readonly List<MarkdownFileNode> _allFiles = new();
+    private readonly ObservableCollection<OpenDocument> _openDocuments = new();
     private FileSystemWatcher? _fileWatcher;
     private DateTime _ignoreWatcherUntilUtc = DateTime.MinValue;
-    private string? _currentFilePath;
-    private string _currentText = string.Empty;
-    private bool _isDirty;
+    private OpenDocument? _activeDocument;
     private int _navigationIndex = -1;
     private bool _isNavigatingHistory;
     private bool _sidebarVisible = true;
+    private bool _isSwitchingTabProgrammatically;
     private double _lastSidebarWidth = 240;
 
     public MainWindow(string rootDirectory)
@@ -45,6 +46,7 @@ public partial class MainWindow : Window
         _autoSaveTimer.Tick += AutoSaveTimer_OnTick;
         _externalChangeTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
         _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
+        TabStrip.ItemsSource = _openDocuments;
         SourceInitialized += (_, _) => TryEnableDarkTitleBar();
         Loaded += async (_, _) => await RunAndReportErrorsAsync(InitializeEditorAsync);
         ReloadFileTree();
@@ -85,9 +87,9 @@ public partial class MainWindow : Window
     {
         _autoSaveTimer.Stop();
 
-        if (_currentFilePath is not null && _isDirty)
+        if (_activeDocument is { IsDirty: true } document)
         {
-            await SaveToFileAsync(_currentFilePath);
+            await SaveDocumentAsync(document);
         }
     }
 
@@ -137,13 +139,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (type != "change")
+        if (type != "change" || _activeDocument is null)
         {
             return;
         }
 
-        _currentText = root.GetProperty("text").GetString() ?? string.Empty;
-        _isDirty = true;
+        _activeDocument.Text = root.GetProperty("text").GetString() ?? string.Empty;
+        _activeDocument.IsDirty = true;
         UpdateStatusBar();
 
         _autoSaveTimer.Stop();
@@ -155,7 +157,10 @@ public partial class MainWindow : Window
         var root = DirectoryService.BuildTree(_rootDirectory);
         FileTree.ItemsSource = root.Children;
         Title = $"nomsidian - {_rootDirectory}";
-        SidebarHeaderText.Text = root.Name.Length > 0 ? root.Name.ToUpperInvariant() : "FILES";
+        if (ExplorerToggleButton.IsChecked == true)
+        {
+            SidebarHeaderText.Text = root.Name.Length > 0 ? root.Name.ToUpperInvariant() : "FILES";
+        }
 
         _allFiles.Clear();
         _allFiles.AddRange(FlattenFiles(root));
@@ -190,17 +195,91 @@ public partial class MainWindow : Window
     private async Task OpenFileAsync(string path)
     {
         await _editorReadyTcs.Task;
+
+        var existing = _openDocuments.FirstOrDefault(d => d.FilePath == path);
+        if (existing is not null)
+        {
+            await ActivateDocumentAsync(existing);
+            return;
+        }
+
+        var text = FileService.ReadAllText(path);
+        var document = new OpenDocument(path, text);
+        _openDocuments.Add(document);
+        await ActivateDocumentAsync(document);
+    }
+
+    private async Task ActivateDocumentAsync(OpenDocument document)
+    {
+        if (_activeDocument == document)
+        {
+            return;
+        }
+
         await FlushPendingAutoSaveAsync();
 
-        _currentText = FileService.ReadAllText(path);
-        _currentFilePath = path;
-        _isDirty = false;
+        _activeDocument = document;
         UpdateStatusBar();
-        RecordNavigation(path);
-        SetupFileWatcher(path);
+        RecordNavigation(document.FilePath);
+        SetupFileWatcher(document.FilePath);
 
-        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(_currentText)})";
+        _isSwitchingTabProgrammatically = true;
+        TabStrip.SelectedItem = document;
+        _isSwitchingTabProgrammatically = false;
+
+        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(document.Text)})";
         await EditorView.CoreWebView2.ExecuteScriptAsync(script);
+    }
+
+    private void TabStrip_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_isSwitchingTabProgrammatically || TabStrip.SelectedItem is not OpenDocument document || document == _activeDocument)
+        {
+            return;
+        }
+
+        _ = RunAndReportErrorsAsync(() => ActivateDocumentAsync(document));
+    }
+
+    private void TabCloseButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (((FrameworkElement)sender).Tag is OpenDocument document)
+        {
+            _ = RunAndReportErrorsAsync(() => CloseDocumentAsync(document));
+        }
+    }
+
+    private async Task CloseDocumentAsync(OpenDocument document)
+    {
+        var wasActive = document == _activeDocument;
+        if (wasActive)
+        {
+            await FlushPendingAutoSaveAsync();
+        }
+
+        var index = _openDocuments.IndexOf(document);
+        _openDocuments.Remove(document);
+
+        if (!wasActive)
+        {
+            return;
+        }
+
+        _activeDocument = null;
+
+        if (_openDocuments.Count > 0)
+        {
+            var nextIndex = Math.Min(index, _openDocuments.Count - 1);
+            await ActivateDocumentAsync(_openDocuments[nextIndex]);
+        }
+        else
+        {
+            _fileWatcher?.Dispose();
+            _fileWatcher = null;
+            UpdateStatusBar();
+            await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuSetContent('')");
+        }
     }
 
     private void SetupFileWatcher(string path)
@@ -227,7 +306,7 @@ public partial class MainWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
-            if (DateTime.UtcNow < _ignoreWatcherUntilUtc || e.FullPath != _currentFilePath)
+            if (DateTime.UtcNow < _ignoreWatcherUntilUtc || e.FullPath != _activeDocument?.FilePath)
             {
                 return;
             }
@@ -240,26 +319,26 @@ public partial class MainWindow : Window
     private void ExternalChangeTimer_OnTick(object? sender, EventArgs e)
     {
         _externalChangeTimer.Stop();
-        _ = RunAndReportErrorsAsync(ReloadCurrentFileIfCleanAsync);
+        _ = RunAndReportErrorsAsync(ReloadActiveDocumentIfCleanAsync);
     }
 
-    private async Task ReloadCurrentFileIfCleanAsync()
+    private async Task ReloadActiveDocumentIfCleanAsync()
     {
-        if (_currentFilePath is null || _isDirty || !File.Exists(_currentFilePath))
+        if (_activeDocument is not { IsDirty: false } document || !File.Exists(document.FilePath))
         {
             return;
         }
 
-        var text = FileService.ReadAllText(_currentFilePath);
-        if (text == _currentText)
+        var text = FileService.ReadAllText(document.FilePath);
+        if (text == document.Text)
         {
             return;
         }
 
-        _currentText = text;
+        document.Text = text;
         UpdateStatusBar();
 
-        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(_currentText)})";
+        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(document.Text)})";
         await EditorView.CoreWebView2.ExecuteScriptAsync(script);
     }
 
@@ -407,9 +486,9 @@ public partial class MainWindow : Window
 
     private void UpdateStatusBar()
     {
-        StatusPathText.Text = _currentFilePath is null
+        StatusPathText.Text = _activeDocument is null
             ? "ファイルが選択されていません"
-            : (_isDirty ? "* " : string.Empty) + Path.GetRelativePath(_rootDirectory, _currentFilePath);
+            : (_activeDocument.IsDirty ? "* " : string.Empty) + Path.GetRelativePath(_rootDirectory, _activeDocument.FilePath);
     }
 
     private void OpenMenuItem_OnClick(object sender, RoutedEventArgs e)
@@ -428,13 +507,13 @@ public partial class MainWindow : Window
 
     private void SaveMenuItem_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_currentFilePath is null)
+        if (_activeDocument is null)
         {
             SaveAsMenuItem_OnClick(sender, e);
             return;
         }
 
-        _ = RunAndReportErrorsAsync(() => SaveToFileAsync(_currentFilePath));
+        _ = RunAndReportErrorsAsync(() => SaveDocumentAsync(_activeDocument));
     }
 
     private void SaveAsMenuItem_OnClick(object sender, RoutedEventArgs e)
@@ -443,37 +522,55 @@ public partial class MainWindow : Window
         {
             Filter = "Markdown ファイル (*.md)|*.md|すべてのファイル (*.*)|*.*",
             InitialDirectory = _rootDirectory,
-            FileName = _currentFilePath is null ? "untitled.md" : Path.GetFileName(_currentFilePath),
+            FileName = _activeDocument is null ? "untitled.md" : Path.GetFileName(_activeDocument.FilePath),
         };
 
         if (dialog.ShowDialog(this) == true)
         {
-            _ = RunAndReportErrorsAsync(() => SaveToFileAsync(dialog.FileName, reloadTree: true));
+            _ = RunAndReportErrorsAsync(() => SaveActiveDocumentAsAsync(dialog.FileName));
         }
     }
 
-    private async Task SaveToFileAsync(string path, bool reloadTree = false)
+    private async Task SaveDocumentAsync(OpenDocument document)
     {
         var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuGetContent()");
-        var text = JsonSerializer.Deserialize<string>(resultJson) ?? _currentText;
+        var text = JsonSerializer.Deserialize<string>(resultJson) ?? document.Text;
 
         _ignoreWatcherUntilUtc = DateTime.UtcNow.Add(OwnWriteIgnoreWindow);
-        FileService.WriteAllText(path, text);
-        _currentText = text;
-        var pathChanged = _currentFilePath != path;
-        _currentFilePath = path;
-        _isDirty = false;
+        FileService.WriteAllText(document.FilePath, text);
+        document.Text = text;
+        document.IsDirty = false;
         UpdateStatusBar();
+    }
 
-        if (pathChanged)
+    private async Task SaveActiveDocumentAsAsync(string newPath)
+    {
+        var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuGetContent()");
+        var text = JsonSerializer.Deserialize<string>(resultJson) ?? string.Empty;
+
+        _ignoreWatcherUntilUtc = DateTime.UtcNow.Add(OwnWriteIgnoreWindow);
+        FileService.WriteAllText(newPath, text);
+
+        if (_activeDocument is not null)
         {
-            SetupFileWatcher(path);
+            _activeDocument.UpdatePath(newPath);
+            _activeDocument.Text = text;
+            _activeDocument.IsDirty = false;
+        }
+        else
+        {
+            var document = new OpenDocument(newPath, text);
+            _openDocuments.Add(document);
+            _activeDocument = document;
+            _isSwitchingTabProgrammatically = true;
+            TabStrip.SelectedItem = document;
+            _isSwitchingTabProgrammatically = false;
         }
 
-        if (reloadTree)
-        {
-            ReloadFileTree();
-        }
+        SetupFileWatcher(newPath);
+        RecordNavigation(newPath);
+        UpdateStatusBar();
+        ReloadFileTree();
     }
 
     private void ExitMenuItem_OnClick(object sender, RoutedEventArgs e)
@@ -485,7 +582,7 @@ public partial class MainWindow : Window
 
     private void MainWindow_OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_closeConfirmed || !_autoSaveTimer.IsEnabled && !_isDirty)
+        if (_closeConfirmed || !_autoSaveTimer.IsEnabled && _activeDocument?.IsDirty != true)
         {
             return;
         }

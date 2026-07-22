@@ -161,6 +161,34 @@
             </Setter>
         </Style>
 
+        <Style x:Key="TabStripStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style x:Key="TabCloseButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Setter Property="FontSize" Value="9" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="SearchBoxStyle" TargetType="TextBox">
             <Setter Property="Background" Value="{StaticResource PanelBgBrush}" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
@@ -442,7 +470,36 @@
                 <Border x:Name="SidebarSplitterBorder" Grid.Column="1" Background="{StaticResource BorderBrush}" />
                 <GridSplitter x:Name="SidebarSplitter" Grid.Column="1" Width="1" HorizontalAlignment="Stretch" Background="Transparent" />
 
-                <wv2:WebView2 x:Name="EditorView" Grid.Column="2" />
+                <DockPanel Grid.Column="2">
+                    <Border DockPanel.Dock="Top" Background="{StaticResource PanelBgBrush}"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <ListBox x:Name="TabStrip" Style="{StaticResource TabStripStyle}"
+                                 SelectionChanged="TabStrip_OnSelectionChanged">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="4,4,0,4" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type local:OpenDocument}">
+                                    <StackPanel Orientation="Horizontal" Margin="10,5">
+                                        <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource TextBrush}"
+                                                   FontSize="12" VerticalAlignment="Center" />
+                                        <Button Content="&#10005;" Tag="{Binding}" Click="TabCloseButton_OnClick"
+                                                Style="{StaticResource TabCloseButtonStyle}" Margin="8,0,0,0" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                    <wv2:WebView2 x:Name="EditorView" />
+                </DockPanel>
             </Grid>
         </DockPanel>
     </Border>
