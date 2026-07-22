@@ -6,12 +6,20 @@
         xmlns:local="clr-namespace:Nomsidian"
         xmlns:services="clr-namespace:Nomsidian.Services"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
-        Title="nomsidian" Height="720" Width="1200"
+        Title="nomsidian" Height="720" Width="1200" MinHeight="360" MinWidth="480"
+        WindowStyle="None"
+        ResizeMode="CanResizeWithGrip"
         Background="{DynamicResource EditorBgBrush}"
         Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI"
+        StateChanged="MainWindow_OnStateChanged"
         Closing="MainWindow_OnClosing">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="36" GlassFrameThickness="0" ResizeBorderThickness="6"
+                             CornerRadius="0" UseAeroCaptionButtons="True" />
+    </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <!-- ==================== カラーパレット（editor.html/main.js の CM6 テーマに合わせる） ==================== -->
         <SolidColorBrush x:Key="EditorBgBrush" Color="#1e1e1e" />
@@ -43,6 +51,13 @@
                 </TextBlock>
             </StackPanel>
         </HierarchicalDataTemplate>
+
+        <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type services:MarkdownFileNode}">
+            <StackPanel Orientation="Horizontal" Margin="0,3">
+                <TextBlock Text="&#128196;" FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+        </DataTemplate>
 
         <!-- ==================== TreeView ==================== -->
         <Style x:Key="TreeToggleStyle" TargetType="ToggleButton">
@@ -117,6 +132,53 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="8,6" />
+        </Style>
+
+        <Style x:Key="SearchResultsListStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,4" />
+        </Style>
+
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="2,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SearchBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource PanelBgBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- ==================== Menu ==================== -->
@@ -240,43 +302,148 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- ==================== タイトルバーの自前キャプションボタン / アイコン ==================== -->
+        <Style x:Key="CaptionButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+            <Setter Property="Width" Value="32" />
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.35" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ToggleIconButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
-    <DockPanel>
-        <Menu DockPanel.Dock="Top">
-            <MenuItem Header="ファイル(_F)" Style="{StaticResource TopMenuItemStyle}">
-                <MenuItem Header="開く(_O)..." Click="OpenMenuItem_OnClick" InputGestureText="Ctrl+O" Style="{StaticResource SubMenuItemStyle}" />
-                <MenuItem Header="保存(_S)" Click="SaveMenuItem_OnClick" InputGestureText="Ctrl+S" Style="{StaticResource SubMenuItemStyle}" />
-                <MenuItem Header="名前を付けて保存(_A)..." Click="SaveAsMenuItem_OnClick" Style="{StaticResource SubMenuItemStyle}" />
-                <Separator />
-                <MenuItem Header="終了(_X)" Click="ExitMenuItem_OnClick" Style="{StaticResource SubMenuItemStyle}" />
-            </MenuItem>
-        </Menu>
-
-        <StatusBar DockPanel.Dock="Bottom">
-            <StatusBarItem>
-                <TextBlock x:Name="StatusPathText" Text="ファイルが選択されていません" FontSize="12" />
-            </StatusBarItem>
-        </StatusBar>
-
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="240" MinWidth="140" />
-                <ColumnDefinition Width="1" />
-                <ColumnDefinition Width="*" MinWidth="300" />
-            </Grid.ColumnDefinitions>
-
-            <DockPanel Grid.Column="0" Background="{StaticResource SidebarBgBrush}">
-                <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
-                    <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
-                               Foreground="{StaticResource MutedTextBrush}" />
-                </Border>
-                <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged" />
+    <Border x:Name="RootBorder" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+        <DockPanel>
+            <DockPanel x:Name="TitleBar" DockPanel.Dock="Top" Height="36" Background="{StaticResource PanelBgBrush}">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="6,0,0,0">
+                    <Button x:Name="BackButton" Style="{StaticResource IconButtonStyle}" Click="BackButton_OnClick"
+                            ToolTip="戻る" IsEnabled="False">
+                        <Path Data="M 7,1.5 L 2.5,6 L 7,10.5" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.4"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Width="10" Height="10" Stretch="None" />
+                    </Button>
+                    <Button x:Name="ForwardButton" Style="{StaticResource IconButtonStyle}" Click="ForwardButton_OnClick"
+                            ToolTip="進む" IsEnabled="False">
+                        <Path Data="M 3,1.5 L 7.5,6 L 3,10.5" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.4"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Width="10" Height="10" Stretch="None" />
+                    </Button>
+                    <Button x:Name="SidebarToggleButton" Style="{StaticResource IconButtonStyle}" Click="SidebarToggleButton_OnClick"
+                            ToolTip="サイドバーの表示切り替え" Margin="8,0,0,0">
+                        <Path Data="M0.5,0.5 L9.5,0.5 L9.5,9.5 L0.5,9.5 Z M3.5,0.5 L3.5,9.5"
+                              Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                    </Button>
+                    <ToggleButton x:Name="ExplorerToggleButton" Style="{StaticResource ToggleIconButtonStyle}"
+                                  Click="ExplorerToggleButton_OnClick" ToolTip="ファイル一覧" IsChecked="True">
+                        <Path Data="M0.5,2.5 L3.5,2.5 L4.5,3.5 L9.5,3.5 L9.5,8.5 L0.5,8.5 Z"
+                              Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" StrokeLineJoin="Round"
+                              Width="10" Height="10" Stretch="None" />
+                    </ToggleButton>
+                    <ToggleButton x:Name="SearchToggleButton" Style="{StaticResource ToggleIconButtonStyle}"
+                                  Click="SearchToggleButton_OnClick" ToolTip="検索">
+                        <Canvas Width="10" Height="10">
+                            <Ellipse Canvas.Left="0" Canvas.Top="0" Width="7" Height="7"
+                                     Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" />
+                            <Line X1="6.2" Y1="6.2" X2="10" Y2="10" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.2" />
+                        </Canvas>
+                    </ToggleButton>
+                </StackPanel>
             </DockPanel>
 
-            <Border Grid.Column="1" Background="{StaticResource BorderBrush}" />
-            <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Stretch" Background="Transparent" />
+            <Menu DockPanel.Dock="Top">
+                <MenuItem Header="ファイル(_F)" Style="{StaticResource TopMenuItemStyle}">
+                    <MenuItem Header="開く(_O)..." Click="OpenMenuItem_OnClick" InputGestureText="Ctrl+O" Style="{StaticResource SubMenuItemStyle}" />
+                    <MenuItem Header="保存(_S)" Click="SaveMenuItem_OnClick" InputGestureText="Ctrl+S" Style="{StaticResource SubMenuItemStyle}" />
+                    <MenuItem Header="名前を付けて保存(_A)..." Click="SaveAsMenuItem_OnClick" Style="{StaticResource SubMenuItemStyle}" />
+                    <Separator />
+                    <MenuItem Header="終了(_X)" Click="ExitMenuItem_OnClick" Style="{StaticResource SubMenuItemStyle}" />
+                </MenuItem>
+            </Menu>
 
-            <wv2:WebView2 x:Name="EditorView" Grid.Column="2" />
-        </Grid>
-    </DockPanel>
+            <StatusBar DockPanel.Dock="Bottom">
+                <StatusBarItem>
+                    <TextBlock x:Name="StatusPathText" Text="ファイルが選択されていません" FontSize="12" />
+                </StatusBarItem>
+            </StatusBar>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="SidebarColumn" Width="240" MinWidth="140" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="*" MinWidth="300" />
+                </Grid.ColumnDefinitions>
+
+                <DockPanel x:Name="SidebarPanel" Grid.Column="0" Background="{StaticResource SidebarBgBrush}">
+                    <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{StaticResource MutedTextBrush}" />
+                    </Border>
+                    <Grid>
+                        <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged" />
+                        <DockPanel x:Name="SearchPanel" Visibility="Collapsed">
+                            <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Style="{StaticResource SearchBoxStyle}"
+                                     Margin="8,8,8,4" TextChanged="SearchBox_OnTextChanged" />
+                            <ListBox x:Name="SearchResultsList" Style="{StaticResource SearchResultsListStyle}"
+                                     ItemTemplate="{StaticResource SearchResultTemplate}"
+                                     SelectionChanged="SearchResultsList_OnSelectionChanged" />
+                        </DockPanel>
+                    </Grid>
+                </DockPanel>
+
+                <Border x:Name="SidebarSplitterBorder" Grid.Column="1" Background="{StaticResource BorderBrush}" />
+                <GridSplitter x:Name="SidebarSplitter" Grid.Column="1" Width="1" HorizontalAlignment="Stretch" Background="Transparent" />
+
+                <wv2:WebView2 x:Name="EditorView" Grid.Column="2" />
+            </Grid>
+        </DockPanel>
+    </Border>
 </Window>
