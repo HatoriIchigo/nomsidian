@@ -17,12 +17,17 @@ public partial class MainWindow : Window
 {
     private const string VirtualHostName = "nomu.local";
     private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ExternalChangeDebounce = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan OwnWriteIgnoreWindow = TimeSpan.FromMilliseconds(750);
 
     private readonly string _rootDirectory;
     private readonly TaskCompletionSource _editorReadyTcs = new();
     private readonly DispatcherTimer _autoSaveTimer;
+    private readonly DispatcherTimer _externalChangeTimer;
     private readonly List<string> _navigationHistory = new();
     private readonly List<MarkdownFileNode> _allFiles = new();
+    private FileSystemWatcher? _fileWatcher;
+    private DateTime _ignoreWatcherUntilUtc = DateTime.MinValue;
     private string? _currentFilePath;
     private string _currentText = string.Empty;
     private bool _isDirty;
@@ -38,6 +43,8 @@ public partial class MainWindow : Window
         _rootDirectory = rootDirectory;
         _autoSaveTimer = new DispatcherTimer { Interval = AutoSaveDelay };
         _autoSaveTimer.Tick += AutoSaveTimer_OnTick;
+        _externalChangeTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
+        _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
         SourceInitialized += (_, _) => TryEnableDarkTitleBar();
         Loaded += async (_, _) => await RunAndReportErrorsAsync(InitializeEditorAsync);
         ReloadFileTree();
@@ -190,6 +197,67 @@ public partial class MainWindow : Window
         _isDirty = false;
         UpdateStatusBar();
         RecordNavigation(path);
+        SetupFileWatcher(path);
+
+        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(_currentText)})";
+        await EditorView.CoreWebView2.ExecuteScriptAsync(script);
+    }
+
+    private void SetupFileWatcher(string path)
+    {
+        _fileWatcher?.Dispose();
+        _fileWatcher = null;
+
+        var directory = Path.GetDirectoryName(path);
+        if (directory is null)
+        {
+            return;
+        }
+
+        var watcher = new FileSystemWatcher(directory, Path.GetFileName(path))
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+        };
+        watcher.Changed += FileWatcher_OnChanged;
+        watcher.EnableRaisingEvents = true;
+        _fileWatcher = watcher;
+    }
+
+    private void FileWatcher_OnChanged(object sender, FileSystemEventArgs e)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (DateTime.UtcNow < _ignoreWatcherUntilUtc || e.FullPath != _currentFilePath)
+            {
+                return;
+            }
+
+            _externalChangeTimer.Stop();
+            _externalChangeTimer.Start();
+        });
+    }
+
+    private void ExternalChangeTimer_OnTick(object? sender, EventArgs e)
+    {
+        _externalChangeTimer.Stop();
+        _ = RunAndReportErrorsAsync(ReloadCurrentFileIfCleanAsync);
+    }
+
+    private async Task ReloadCurrentFileIfCleanAsync()
+    {
+        if (_currentFilePath is null || _isDirty || !File.Exists(_currentFilePath))
+        {
+            return;
+        }
+
+        var text = FileService.ReadAllText(_currentFilePath);
+        if (text == _currentText)
+        {
+            return;
+        }
+
+        _currentText = text;
+        UpdateStatusBar();
 
         var script = $"window.__nomuSetContent({JsonSerializer.Serialize(_currentText)})";
         await EditorView.CoreWebView2.ExecuteScriptAsync(script);
@@ -389,11 +457,18 @@ public partial class MainWindow : Window
         var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuGetContent()");
         var text = JsonSerializer.Deserialize<string>(resultJson) ?? _currentText;
 
+        _ignoreWatcherUntilUtc = DateTime.UtcNow.Add(OwnWriteIgnoreWindow);
         FileService.WriteAllText(path, text);
         _currentText = text;
+        var pathChanged = _currentFilePath != path;
         _currentFilePath = path;
         _isDirty = false;
         UpdateStatusBar();
+
+        if (pathChanged)
+        {
+            SetupFileWatcher(path);
+        }
 
         if (reloadTree)
         {
@@ -422,6 +497,7 @@ public partial class MainWindow : Window
     private async Task CloseAfterFlushAsync()
     {
         await RunAndReportErrorsAsync(FlushPendingAutoSaveAsync);
+        _fileWatcher?.Dispose();
         _closeConfirmed = true;
         Close();
     }
