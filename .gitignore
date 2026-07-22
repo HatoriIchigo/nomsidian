@@ -1,0 +1,15 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# Node (editor-src)
+node_modules/
+
+# Claude Code harness state (local tooling, not project source)
+.claude/
+
+# OS/editor cruft
+.vs/
+*.suo
+Thumbs.db
