@@ -1,7 +1,10 @@
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using Nomsidian.Services;
@@ -11,9 +14,11 @@ namespace Nomsidian;
 public partial class MainWindow : Window
 {
     private const string VirtualHostName = "nomu.local";
+    private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromSeconds(1);
 
     private readonly string _rootDirectory;
     private readonly TaskCompletionSource _editorReadyTcs = new();
+    private readonly DispatcherTimer _autoSaveTimer;
     private string? _currentFilePath;
     private string _currentText = string.Empty;
     private bool _isDirty;
@@ -23,8 +28,45 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         _rootDirectory = rootDirectory;
+        _autoSaveTimer = new DispatcherTimer { Interval = AutoSaveDelay };
+        _autoSaveTimer.Tick += AutoSaveTimer_OnTick;
+        SourceInitialized += (_, _) => TryEnableDarkTitleBar();
         Loaded += async (_, _) => await RunAndReportErrorsAsync(InitializeEditorAsync);
         ReloadFileTree();
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
+
+    private void TryEnableDarkTitleBar()
+    {
+        const int DwmwaUseImmersiveDarkMode = 20;
+        try
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var enabled = 1;
+            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref enabled, sizeof(int));
+        }
+        catch (DllNotFoundException)
+        {
+            // 古い Windows ではダークタイトルバー非対応のため無視する
+        }
+    }
+
+    private void AutoSaveTimer_OnTick(object? sender, EventArgs e)
+    {
+        _autoSaveTimer.Stop();
+        _ = RunAndReportErrorsAsync(FlushPendingAutoSaveAsync);
+    }
+
+    private async Task FlushPendingAutoSaveAsync()
+    {
+        _autoSaveTimer.Stop();
+
+        if (_currentFilePath is not null && _isDirty)
+        {
+            await SaveToFileAsync(_currentFilePath);
+        }
     }
 
     private static async Task RunAndReportErrorsAsync(Func<Task> action)
@@ -81,6 +123,9 @@ public partial class MainWindow : Window
         _currentText = root.GetProperty("text").GetString() ?? string.Empty;
         _isDirty = true;
         UpdateStatusBar();
+
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
     }
 
     private void ReloadFileTree()
@@ -88,6 +133,7 @@ public partial class MainWindow : Window
         var root = DirectoryService.BuildTree(_rootDirectory);
         FileTree.ItemsSource = root.Children;
         Title = $"nomsidian - {_rootDirectory}";
+        SidebarHeaderText.Text = root.Name.Length > 0 ? root.Name.ToUpperInvariant() : "FILES";
     }
 
     private void FileTree_OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
@@ -101,6 +147,7 @@ public partial class MainWindow : Window
     private async Task OpenFileAsync(string path)
     {
         await _editorReadyTcs.Task;
+        await FlushPendingAutoSaveAsync();
 
         _currentText = FileService.ReadAllText(path);
         _currentFilePath = path;
@@ -177,6 +224,26 @@ public partial class MainWindow : Window
 
     private void ExitMenuItem_OnClick(object sender, RoutedEventArgs e)
     {
+        Close();
+    }
+
+    private bool _closeConfirmed;
+
+    private void MainWindow_OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_closeConfirmed || !_autoSaveTimer.IsEnabled && !_isDirty)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        _ = CloseAfterFlushAsync();
+    }
+
+    private async Task CloseAfterFlushAsync()
+    {
+        await RunAndReportErrorsAsync(FlushPendingAutoSaveAsync);
+        _closeConfirmed = true;
         Close();
     }
 }
