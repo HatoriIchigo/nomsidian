@@ -40,7 +40,7 @@
 
         <HierarchicalDataTemplate DataType="{x:Type services:FileNode}" ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal" Margin="0,3">
-                <TextBlock Text="{Binding IsDirectory, Converter={x:Static local:BoolToGlyphConverter.Instance}}"
+                <TextBlock Text="{Binding Converter={x:Static local:FileIconConverter.Instance}}"
                            FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center">
                     <TextBlock.Style>
@@ -60,7 +60,8 @@
 
         <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type services:FileNode}">
             <StackPanel Orientation="Horizontal" Margin="0,3">
-                <TextBlock Text="&#128196;" FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Converter={x:Static local:FileIconConverter.Instance}}"
+                           FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
                 <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
             </StackPanel>
         </DataTemplate>
