@@ -32,7 +32,7 @@ public partial class MainWindow : Window
     private static readonly TimeSpan ExternalChangeDebounce = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan OwnWriteIgnoreWindow = TimeSpan.FromMilliseconds(750);
 
-    private readonly string _rootDirectory;
+    private string _rootDirectory;
     private readonly NomuConfig _config;
     private readonly TaskCompletionSource _editorReadyTcs = new();
     private readonly DispatcherTimer _externalChangeTimer;
@@ -308,6 +308,30 @@ public partial class MainWindow : Window
                 yield return child;
             }
         }
+    }
+
+    private void OpenDirectoryButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (((FrameworkElement)sender).Tag is FileNode { IsDirectory: true } node)
+        {
+            _ = RunAndReportErrorsAsync(() => OpenDirectoryAsync(node.FullPath));
+        }
+    }
+
+    /// <summary>
+    /// ファイル一覧のディレクトリ行から、そのディレクトリを新たなvaultルートとして開き直す。
+    /// vault仮想ホスト(nomu.vault)のマッピング先も合わせて張り替えるため、内部リンク/画像解決の
+    /// 基準ディレクトリ(basePath計算・セキュリティ境界チェック)は常に現在の_rootDirectoryと一致する。
+    /// </summary>
+    private async Task OpenDirectoryAsync(string newRoot)
+    {
+        await _editorReadyTcs.Task;
+
+        _rootDirectory = newRoot;
+        EditorView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+            VaultVirtualHostName, newRoot, CoreWebView2HostResourceAccessKind.Allow);
+        ReloadFileTree();
     }
 
     private void FileTree_OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)

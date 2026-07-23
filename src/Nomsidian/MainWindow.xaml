@@ -27,6 +27,8 @@
                              CornerRadius="0" UseAeroCaptionButtons="True" />
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
         <!-- ==================== カラーパレット（editor.html/main.js の CM6 テーマに合わせる） ==================== -->
         <SolidColorBrush x:Key="EditorBgBrush" Color="#1e1e1e" />
         <SolidColorBrush x:Key="SidebarBgBrush" Color="#181819" />
@@ -55,6 +57,10 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
+                <Button Content="&#128194;" FontFamily="Segoe UI Emoji" FontSize="10" Margin="6,0,0,0"
+                        Style="{DynamicResource TabCloseButtonStyle}" Tag="{Binding}" Click="OpenDirectoryButton_OnClick"
+                        ToolTip="このディレクトリを開く"
+                        Visibility="{Binding IsDirectory, Converter={StaticResource BoolToVisibilityConverter}}" />
             </StackPanel>
         </HierarchicalDataTemplate>
 
