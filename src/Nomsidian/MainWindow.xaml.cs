@@ -46,6 +46,9 @@ public partial class MainWindow : Window
     private double _lastSidebarWidth = 240;
     private SearchMode _searchMode = SearchMode.FileName;
     private CancellationTokenSource? _crossFileSearchCts;
+    private bool _outlineVisible = true;
+    private double _lastOutlineWidth = 200;
+    private readonly ObservableCollection<HeadingItem> _headings = new();
 
     public MainWindow(string rootDirectory, NomuConfig config)
     {
@@ -57,6 +60,7 @@ public partial class MainWindow : Window
         _externalChangeTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
         _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
         TabStrip.ItemsSource = _openDocuments;
+        OutlineList.ItemsSource = _headings;
         SourceInitialized += (_, _) => TryEnableDarkTitleBar();
         Loaded += async (_, _) => await RunAndReportErrorsAsync(InitializeEditorAsync);
         ReloadFileTree();
@@ -258,6 +262,7 @@ public partial class MainWindow : Window
 
         var text = root.GetProperty("text").GetString() ?? string.Empty;
         _activeDocument.Text = text;
+        UpdateHeadings();
 
         if (type == "save")
         {
@@ -344,6 +349,7 @@ public partial class MainWindow : Window
         _isSwitchingTabProgrammatically = false;
 
         await SetEditorContentAsync(document.Text, document.FilePath);
+        UpdateHeadings();
     }
 
     private void TabStrip_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -393,6 +399,7 @@ public partial class MainWindow : Window
             _fileWatcher?.Dispose();
             _fileWatcher = null;
             UpdateStatusBar();
+            _headings.Clear();
             await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuSetContent('', true)");
         }
     }
@@ -477,6 +484,7 @@ public partial class MainWindow : Window
         UpdateStatusBar();
 
         await SetEditorContentAsync(document.Text, document.FilePath);
+        UpdateHeadings();
     }
 
     private void SidebarToggleButton_OnClick(object sender, RoutedEventArgs e)
@@ -738,6 +746,70 @@ public partial class MainWindow : Window
         public string LineText { get; set; } = string.Empty;
         public int MatchStart { get; set; }
         public int MatchLength { get; set; }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex HeadingRegex =
+        new(@"^(#{1,6})\s+(.+?)\s*#*\s*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private void UpdateHeadings()
+    {
+        _headings.Clear();
+
+        if (_activeDocument is null || !IsMarkdownFile(_activeDocument.FilePath))
+        {
+            return;
+        }
+
+        foreach (var (lineNumber, lineStart, lineText) in EnumerateLines(_activeDocument.Text))
+        {
+            var match = HeadingRegex.Match(lineText);
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            _headings.Add(new HeadingItem
+            {
+                Level = match.Groups[1].Value.Length,
+                Text = match.Groups[2].Value,
+                Line = lineNumber,
+                From = lineStart,
+            });
+        }
+    }
+
+    private void OutlineToggleButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _outlineVisible = !_outlineVisible;
+
+        if (_outlineVisible)
+        {
+            OutlineColumn.Width = new GridLength(_lastOutlineWidth);
+            OutlineColumn.MinWidth = 140;
+        }
+        else
+        {
+            _lastOutlineWidth = OutlineColumn.ActualWidth > 0 ? OutlineColumn.ActualWidth : _lastOutlineWidth;
+            OutlineColumn.MinWidth = 0;
+            OutlineColumn.Width = new GridLength(0);
+        }
+
+        OutlineSplitterBorder.Visibility = _outlineVisible ? Visibility.Visible : Visibility.Collapsed;
+        OutlineSplitter.Visibility = _outlineVisible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OutlineList_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (OutlineList.SelectedItem is not HeadingItem heading)
+        {
+            return;
+        }
+
+        _ = RunAndReportErrorsAsync(async () =>
+        {
+            await EditorView.CoreWebView2.ExecuteScriptAsync($"window.__nomuGotoRange({heading.From}, {heading.From})");
+            EditorView.Focus();
+        });
     }
 
     private void UpdateStatusBar()

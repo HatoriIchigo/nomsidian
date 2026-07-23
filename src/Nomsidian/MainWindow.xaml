@@ -504,6 +504,11 @@
                     </Button>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="OutlineToggleButton" Style="{StaticResource IconButtonStyle}" Click="OutlineToggleButton_OnClick"
+                            ToolTip="アウトライン（見出しジャンプ）の表示切り替え">
+                        <Path Data="M0.5,0.5 L9.5,0.5 M3.5,4.5 L9.5,4.5 M0.5,8.5 L9.5,8.5"
+                              Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                    </Button>
                     <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButtonStyle}" Click="MinimizeButton_OnClick" ToolTip="最小化">
                         <Path Data="M0,5 H10" Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
                     </Button>
@@ -529,6 +534,8 @@
                     <ColumnDefinition x:Name="SidebarColumn" Width="240" MinWidth="140" />
                     <ColumnDefinition Width="1" />
                     <ColumnDefinition Width="*" MinWidth="300" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition x:Name="OutlineColumn" Width="200" MinWidth="140" />
                 </Grid.ColumnDefinitions>
 
                 <Border x:Name="ActivityBar" Grid.Column="0" Background="{DynamicResource PanelBgBrush}"
@@ -611,6 +618,30 @@
                         </ListBox>
                     </Border>
                     <wv2:WebView2 x:Name="EditorView" />
+                </DockPanel>
+
+                <Border x:Name="OutlineSplitterBorder" Grid.Column="4" Background="{DynamicResource BorderBrush}" />
+                <GridSplitter x:Name="OutlineSplitter" Grid.Column="4" Width="1" HorizontalAlignment="Stretch" Background="Transparent" />
+
+                <DockPanel x:Name="OutlinePanel" Grid.Column="5" Background="{DynamicResource SidebarBgBrush}">
+                    <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="OUTLINE" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextBrush}" />
+                    </Border>
+                    <Grid>
+                        <TextBlock Text="見出しがありません" Foreground="{DynamicResource MutedTextBrush}" FontSize="12"
+                                   Margin="14,10" TextWrapping="Wrap"
+                                   Visibility="{Binding Items.Count, ElementName=OutlineList, Converter={x:Static local:ZeroToVisibleConverter.Instance}}" />
+                        <ListBox x:Name="OutlineList" Style="{StaticResource SearchResultsListStyle}"
+                                 SelectionChanged="OutlineList_OnSelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type local:HeadingItem}">
+                                    <TextBlock Text="{Binding Text}" Foreground="{DynamicResource TextBrush}"
+                                               FontSize="12" Margin="{Binding IndentWidth, Converter={x:Static local:IndentToThicknessConverter.Instance}}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
                 </DockPanel>
             </Grid>
         </DockPanel>
