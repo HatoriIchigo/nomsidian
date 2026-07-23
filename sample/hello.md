@@ -28,10 +28,15 @@ Console.WriteLine("Hello, nomsidian!");
 
 > 引用テキストのテストです。
 
+## link test
+
+- [Yahoo Japan](http://www.yahoo.co.jp)
+- 
+
 ## Mermaid
 
 ```mermaid
-graph TD
+graph LR
   A[開始] --> B{ログイン済み?}
   B -->|Yes| C[ダッシュボード表示]
   B -->|No| D[ログイン画面へ]

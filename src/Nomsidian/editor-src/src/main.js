@@ -72,6 +72,108 @@ class TaskCheckboxWidget extends WidgetType {
     }
 }
 
+// ---- リンク/画像 ----
+let vaultBasePath = "";
+
+function requestOpenUrl(url) {
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ type: "openUrl", url }));
+    }
+}
+
+function requestOpenInternalLink(path) {
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ type: "openInternalLink", path }));
+    }
+}
+
+// スキーム(http:, mailto: など)を持つ絶対URLは外部リンク、それ以外はvault内の相対パスとして扱う
+function followLink(url) {
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) {
+        requestOpenUrl(url);
+    } else {
+        requestOpenInternalLink(url);
+    }
+}
+
+// 相対パス（ノート自身のディレクトリ基準）を、vaultルートへの仮想ホストURLに変換する
+function resolveImageSrc(url) {
+    if (/^(https?:|data:|file:)/i.test(url)) return url;
+
+    const joined = vaultBasePath ? `${vaultBasePath}/${url}` : url;
+    const segments = [];
+    for (const seg of joined.split("/")) {
+        if (seg === "" || seg === ".") continue;
+        if (seg === "..") segments.pop();
+        else segments.push(seg);
+    }
+    return `https://nomu.vault/${segments.map(encodeURIComponent).join("/")}`;
+}
+
+// ---- Widget: [text](url) を実際のリンク風テキストに差し替える ----
+class LinkWidget extends WidgetType {
+    constructor(text, url, pos) {
+        super();
+        this.text = text;
+        this.url = url;
+        this.pos = pos;
+    }
+    eq(other) {
+        return other.text === this.text && other.url === this.url;
+    }
+    toDOM(view) {
+        const el = document.createElement("span");
+        el.className = "cm-nomu-link";
+        el.textContent = this.text || this.url;
+        el.title = `Ctrl+クリックで開く: ${this.url}`;
+        el.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            if (e.ctrlKey || e.metaKey) {
+                followLink(this.url);
+                return;
+            }
+            view.dispatch({ selection: { anchor: this.pos }, scrollIntoView: true });
+            view.focus();
+        });
+        return el;
+    }
+    ignoreEvent() {
+        return false;
+    }
+}
+
+// ---- Widget: ![alt](url) を実際の <img> に差し替える ----
+class ImageWidget extends WidgetType {
+    constructor(alt, url, pos) {
+        super();
+        this.alt = alt;
+        this.url = url;
+        this.pos = pos;
+    }
+    eq(other) {
+        return other.alt === this.alt && other.url === this.url;
+    }
+    toDOM(view) {
+        const img = document.createElement("img");
+        img.className = "cm-nomu-image";
+        img.src = resolveImageSrc(this.url);
+        img.alt = this.alt;
+        img.addEventListener("error", () => {
+            img.classList.add("cm-nomu-image-error");
+            img.alt = `画像が見つかりません: ${this.url}`;
+        });
+        img.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            view.dispatch({ selection: { anchor: this.pos }, scrollIntoView: true });
+            view.focus();
+        });
+        return img;
+    }
+    ignoreEvent() {
+        return false;
+    }
+}
+
 // ---- テーブルの行/セルを構文木から取り出す（生テキストの手動パースより位置が正確） ----
 // 各行はソースの実際の行(from/to)に対応させ、行番号ガターと1対1になるようにする。
 function getTableRows(tableNode, state) {
@@ -350,6 +452,35 @@ function buildDecorations(view) {
                     return;
                 }
 
+                if (name === "CodeMark") {
+                    const parent = node.node.parent;
+                    if (parent && parent.type.name === "InlineCode" && !selectionOverlaps(state, parent.from, parent.to)) {
+                        decos.push(Decoration.replace({}).range(node.from, node.to));
+                    }
+                    return;
+                }
+
+                if (name === "Link" || name === "Image") {
+                    if (!selectionOverlaps(state, node.from, node.to)) {
+                        const marks = [];
+                        let urlNode = null;
+                        for (let child = node.node.firstChild; child; child = child.nextSibling) {
+                            if (child.type.name === "LinkMark") marks.push(child);
+                            else if (child.type.name === "URL") urlNode = child;
+                        }
+                        if (marks.length >= 2 && urlNode) {
+                            const text = state.doc.sliceString(marks[0].to, marks[1].from);
+                            const url = state.doc.sliceString(urlNode.from, urlNode.to);
+                            const widget =
+                                name === "Image"
+                                    ? new ImageWidget(text, url, node.from)
+                                    : new LinkWidget(text, url, node.from);
+                            decos.push(Decoration.replace({ widget }).range(node.from, node.to));
+                        }
+                    }
+                    return false;
+                }
+
                 if (name === "Blockquote") {
                     const startLine = state.doc.lineAt(node.from).number;
                     const endLine = state.doc.lineAt(node.to).number;
@@ -359,13 +490,29 @@ function buildDecorations(view) {
                     return;
                 }
 
+                if (name === "QuoteMark") {
+                    const line = state.doc.lineAt(node.from);
+                    if (!selectionOverlaps(state, line.from, line.to)) {
+                        // ">" (マーク+直後の空白) を隠す。カーソルがその行にある時だけ生の ">" を見せる
+                        let end = node.to;
+                        if (state.doc.sliceString(end, end + 1) === " ") end += 1;
+                        decos.push(Decoration.replace({}).range(node.from, end));
+                    }
+                    return;
+                }
+
                 if (name === "FencedCode") {
                     const fenceNode = node.node;
                     let infoText = "";
                     let codeFrom = -1;
                     let codeTo = -1;
+                    let openMark = null;
+                    let closeMark = null;
                     for (let child = fenceNode.firstChild; child; child = child.nextSibling) {
-                        if (child.type.name === "CodeInfo") {
+                        if (child.type.name === "CodeMark") {
+                            if (!openMark) openMark = child;
+                            else closeMark = child;
+                        } else if (child.type.name === "CodeInfo") {
                             infoText = state.doc.sliceString(child.from, child.to).trim();
                         } else if (child.type.name === "CodeText") {
                             if (codeFrom === -1) codeFrom = child.from;
@@ -388,6 +535,17 @@ function buildDecorations(view) {
                             hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
                         }
                         return false;
+                    }
+
+                    // 通常のコードブロック: ```lang / ``` のフェンス行は、カーソルがその行にない時だけ隠す
+                    for (const mark of [openMark, closeMark]) {
+                        if (!mark) continue;
+                        const line = state.doc.lineAt(mark.from);
+                        if (!selectionOverlaps(state, line.from, line.to)) {
+                            decos.push(Decoration.replace({}).range(line.from, line.to));
+                            decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(line.from));
+                            hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
+                        }
                     }
                 }
 
@@ -549,6 +707,25 @@ const nomuTheme = EditorView.theme(
         },
         ".cm-nomu-codeblock": {
             backgroundColor: "#2a2a2a",
+        },
+        ".cm-nomu-link": {
+            color: "#6ea8fe",
+            textDecoration: "underline",
+            cursor: "pointer",
+        },
+        ".cm-nomu-image": {
+            maxWidth: "100%",
+            borderRadius: "4px",
+            verticalAlign: "middle",
+            cursor: "text",
+        },
+        ".cm-nomu-image-error": {
+            display: "inline-block",
+            minWidth: "120px",
+            minHeight: "24px",
+            border: "1px dashed #5a5a5a",
+            color: "#a9abae",
+            fontSize: "12px",
         },
         ".cm-nomu-quote": {
             borderLeft: "3px solid #4a4a4a",
@@ -795,6 +972,10 @@ window.__nomuGetContent = function () {
 window.__nomuSetGitBase = function (text) {
     gitBaseText = text;
     view.dispatch({ effects: setGitBaseEffect.of(text) });
+};
+
+window.__nomuSetBasePath = function (path) {
+    vaultBasePath = path || "";
 };
 
 window.__nomuInit();

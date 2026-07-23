@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -18,6 +19,7 @@ namespace Nomsidian;
 public partial class MainWindow : Window
 {
     private const string VirtualHostName = "nomu.local";
+    private const string VaultVirtualHostName = "nomu.vault";
     private static readonly TimeSpan ExternalChangeDebounce = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan OwnWriteIgnoreWindow = TimeSpan.FromMilliseconds(750);
 
@@ -129,6 +131,10 @@ public partial class MainWindow : Window
         EditorView.CoreWebView2.SetVirtualHostNameToFolderMapping(
             VirtualHostName, webUiDirectory, CoreWebView2HostResourceAccessKind.Allow);
 
+        // Markdown内の相対パス画像(![alt](./img.png)など)を解決するため、vaultルートも仮想ホストとして公開する
+        EditorView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+            VaultVirtualHostName, _rootDirectory, CoreWebView2HostResourceAccessKind.Allow);
+
         EditorView.CoreWebView2.WebMessageReceived += CoreWebView2_OnWebMessageReceived;
 
         void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -152,6 +158,52 @@ public partial class MainWindow : Window
             MessageBox.Show(
                 $"{root.GetProperty("source").GetString()}\n\n{root.GetProperty("message").GetString()}",
                 "nomsidian JS エラー");
+            return;
+        }
+
+        if (type == "openUrl")
+        {
+            var url = root.GetProperty("url").GetString();
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == "mailto"))
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.ToString(), "nomsidian エラー");
+                }
+            }
+            return;
+        }
+
+        if (type == "openInternalLink")
+        {
+            var linkPath = root.GetProperty("path").GetString();
+            if (linkPath is not null && _activeDocument is not null)
+            {
+                // "#見出し" のようなアンカー部分は現状未対応のため取り除く
+                var hashIndex = linkPath.IndexOf('#');
+                if (hashIndex >= 0)
+                {
+                    linkPath = linkPath[..hashIndex];
+                }
+
+                if (linkPath.Length > 0)
+                {
+                    var baseDirectory = Path.GetDirectoryName(_activeDocument.FilePath) ?? _rootDirectory;
+                    var resolvedPath = Path.GetFullPath(Path.Combine(baseDirectory, linkPath));
+                    var rootFullPath = Path.GetFullPath(_rootDirectory);
+
+                    if (resolvedPath.StartsWith(rootFullPath, StringComparison.OrdinalIgnoreCase) &&
+                        File.Exists(resolvedPath))
+                    {
+                        _ = RunAndReportErrorsAsync(() => OpenFileAsync(resolvedPath));
+                    }
+                }
+            }
             return;
         }
 
@@ -314,6 +366,15 @@ public partial class MainWindow : Window
         var headContent = await Task.Run(() => GitService.TryGetHeadContent(filePath));
         var baseScript = $"window.__nomuSetGitBase({JsonSerializer.Serialize(headContent)})";
         await EditorView.CoreWebView2.ExecuteScriptAsync(baseScript);
+
+        var directory = Path.GetDirectoryName(filePath) ?? _rootDirectory;
+        var basePath = Path.GetRelativePath(_rootDirectory, directory).Replace(Path.DirectorySeparatorChar, '/');
+        if (basePath == ".")
+        {
+            basePath = string.Empty;
+        }
+        var basePathScript = $"window.__nomuSetBasePath({JsonSerializer.Serialize(basePath)})";
+        await EditorView.CoreWebView2.ExecuteScriptAsync(basePathScript);
     }
 
     private void SetupFileWatcher(string path)
