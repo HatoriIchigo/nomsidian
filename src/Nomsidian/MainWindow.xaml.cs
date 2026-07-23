@@ -403,7 +403,7 @@ public partial class MainWindow : Window
     private async Task SetEditorContentAsync(string text, string filePath)
     {
         var isMarkdown = IsMarkdownFile(filePath) ? "true" : "false";
-        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(text)}, {isMarkdown})";
+        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(text)}, {isMarkdown}, {JsonSerializer.Serialize(filePath)})";
         await EditorView.CoreWebView2.ExecuteScriptAsync(script);
 
         var headContent = await Task.Run(() => GitService.TryGetHeadContent(filePath));

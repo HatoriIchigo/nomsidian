@@ -3,11 +3,13 @@ import { EditorState, Compartment, StateEffect, RangeSet } from "@codemirror/sta
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
-import { syntaxTree } from "@codemirror/language";
+import { syntaxTree, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import { search, setSearchQuery, SearchQuery } from "@codemirror/search";
 import { diffLines } from "diff";
 import mermaid from "mermaid";
 import { vim } from "@replit/codemirror-vim";
+import { languageForFilename, languageForInfo } from "./languages.js";
 
 mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
 
@@ -947,11 +949,40 @@ const plainTextTheme = EditorView.theme({
     },
 });
 
-function modeExtensions(isMarkdown) {
-    return isMarkdown ? [markdown({ extensions: [GFM] }), livePreviewPlugin] : [plainTextTheme];
+// ---- シンタックスハイライト配色(tree-sitter/Lezerのタグに対する色付け) ----
+// 「特定の単語(ifなど)を色付けする」という要望に対応するため、キーワードは強めの赤系にしている。
+const nomuHighlightStyle = HighlightStyle.define([
+    { tag: tags.keyword, color: "#e06c75", fontWeight: "600" },
+    { tag: tags.controlKeyword, color: "#e06c75", fontWeight: "600" },
+    { tag: tags.operatorKeyword, color: "#e06c75" },
+    { tag: [tags.string, tags.special(tags.string)], color: "#98c379" },
+    { tag: tags.number, color: "#d19a66" },
+    { tag: tags.bool, color: "#d19a66" },
+    { tag: tags.comment, color: "#7f848e", fontStyle: "italic" },
+    { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: "#61afef" },
+    { tag: tags.definition(tags.variableName), color: "#e5c07b" },
+    { tag: tags.typeName, color: "#e5c07b" },
+    { tag: tags.className, color: "#e5c07b" },
+    { tag: tags.propertyName, color: "#61afef" },
+    { tag: tags.atom, color: "#d19a66" },
+    { tag: tags.tagName, color: "#e06c75" },
+    { tag: tags.attributeName, color: "#d19a66" },
+    { tag: tags.angleBracket, color: "#7f848e" },
+    { tag: tags.punctuation, color: "#a9abae" },
+    { tag: tags.invalid, color: "#e06c75", textDecoration: "underline wavy" },
+]);
+const nomuSyntaxHighlighting = syntaxHighlighting(nomuHighlightStyle);
+
+function modeExtensions(isMarkdown, filePath) {
+    if (isMarkdown) {
+        return [markdown({ extensions: [GFM], codeLanguages: languageForInfo }), livePreviewPlugin];
+    }
+
+    const lang = languageForFilename(filePath || "");
+    return lang ? [lang, plainTextTheme] : [plainTextTheme];
 }
 
-function createEditorState(doc, isMarkdown) {
+function createEditorState(doc, isMarkdown, filePath) {
     return EditorState.create({
         doc,
         extensions: [
@@ -962,13 +993,14 @@ function createEditorState(doc, isMarkdown) {
             history(),
             saveKeymap,
             keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-            modeCompartment.of(modeExtensions(isMarkdown)),
+            modeCompartment.of(modeExtensions(isMarkdown, filePath)),
             gitGutterExtension,
             gitGutterPlugin,
             lineNumbers(),
             hiddenGutterLinesField,
             search({ top: true }),
             nomuTheme,
+            nomuSyntaxHighlighting,
             EditorView.lineWrapping,
             EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
@@ -986,12 +1018,12 @@ window.__nomuInit = function () {
     });
 };
 
-window.__nomuSetContent = function (text, isMarkdown) {
+window.__nomuSetContent = function (text, isMarkdown, filePath) {
     gitBaseText = null;
     view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: text },
         selection: { anchor: 0 },
-        effects: [modeCompartment.reconfigure(modeExtensions(isMarkdown)), setGitBaseEffect.of(null)],
+        effects: [modeCompartment.reconfigure(modeExtensions(isMarkdown, filePath)), setGitBaseEffect.of(null)],
     });
 };
 
