@@ -551,8 +551,26 @@
             </DockPanel>
 
             <StatusBar DockPanel.Dock="Bottom">
+                <StatusBarItem Margin="0">
+                    <Border x:Name="ModeBadge" Background="{DynamicResource AccentBrush}" CornerRadius="3"
+                            Padding="7,1" Margin="0,-2" Visibility="Collapsed">
+                        <TextBlock x:Name="ModeBadgeText" Text="NORMAL" FontSize="11" FontWeight="Bold" Foreground="#101010" />
+                    </Border>
+                </StatusBarItem>
                 <StatusBarItem>
-                    <TextBlock x:Name="StatusPathText" Text="ファイルが選択されていません" FontSize="12" />
+                    <TextBlock x:Name="BranchText" FontSize="12" Margin="10,0,0,0" Visibility="Collapsed" />
+                </StatusBarItem>
+                <StatusBarItem>
+                    <TextBlock x:Name="StatusPathText" Text="ファイルが選択されていません" FontSize="12" Margin="10,0,0,0" />
+                </StatusBarItem>
+                <StatusBarItem DockPanel.Dock="Right">
+                    <TextBlock x:Name="CursorPositionText" FontSize="12" />
+                </StatusBarItem>
+                <StatusBarItem DockPanel.Dock="Right">
+                    <TextBlock x:Name="EncodingText" Text="UTF-8" FontSize="12" Margin="0,0,16,0" />
+                </StatusBarItem>
+                <StatusBarItem DockPanel.Dock="Right">
+                    <TextBlock x:Name="FiletypeText" FontSize="12" Margin="0,0,16,0" />
                 </StatusBarItem>
             </StatusBar>
 

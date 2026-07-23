@@ -34,6 +34,19 @@ public static class GitService
         return headContent ?? string.Empty;
     }
 
+    /// <summary>ステータスライン表示用の現在のブランチ名。Gitリポジトリ配下でない/取得失敗時はnull。</summary>
+    public static string? TryGetCurrentBranch(string filePath)
+    {
+        var directory = Path.GetDirectoryName(filePath);
+        if (directory is null)
+        {
+            return null;
+        }
+
+        var branch = RunGit(directory, "rev-parse", "--abbrev-ref", "HEAD");
+        return string.IsNullOrWhiteSpace(branch) ? null : branch.Trim();
+    }
+
     private static string? RunGit(string workingDirectory, params string[] args)
     {
         try

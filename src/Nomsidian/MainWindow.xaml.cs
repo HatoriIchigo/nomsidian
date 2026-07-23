@@ -51,6 +51,11 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<HeadingItem> _headings = new();
     private readonly ObservableCollection<FileNode> _favorites = new();
     private FileNode? _contextMenuNode;
+    private string? _gitBranch;
+    private string? _vimMode;
+    private int _cursorLine = 1;
+    private int _cursorCol = 1;
+    private string _filetype = string.Empty;
 
     public MainWindow(string rootDirectory, NomuConfig config)
     {
@@ -228,6 +233,21 @@ public partial class MainWindow : Window
                     MessageBox.Show(ex.ToString(), "nomsidian エラー");
                 }
             }
+            return;
+        }
+
+        if (type == "cursor")
+        {
+            _cursorLine = root.GetProperty("line").GetInt32();
+            _cursorCol = root.GetProperty("col").GetInt32();
+            UpdateStatusBar();
+            return;
+        }
+
+        if (type == "vimMode")
+        {
+            _vimMode = root.GetProperty("mode").GetString();
+            UpdateStatusBar();
             return;
         }
 
@@ -426,6 +446,10 @@ public partial class MainWindow : Window
         {
             _fileWatcher?.Dispose();
             _fileWatcher = null;
+            _gitBranch = null;
+            _filetype = string.Empty;
+            _cursorLine = 1;
+            _cursorCol = 1;
             UpdateStatusBar();
             _headings.Clear();
             await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuSetContent('', true)");
@@ -434,6 +458,36 @@ public partial class MainWindow : Window
 
     private static bool IsMarkdownFile(string path) =>
         Path.GetExtension(path) is ".md" or ".markdown";
+
+    // ステータスラインの filetype 表示用。未知の拡張子は neovim statusline の空欄表示に倣い空文字。
+    private static string GetFiletypeLabel(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".md" or ".markdown" => "markdown",
+        ".txt" => "text",
+        ".py" => "python",
+        ".c" or ".h" => "c",
+        ".cpp" or ".cc" or ".cxx" or ".hpp" or ".hxx" => "cpp",
+        ".cs" => "csharp",
+        ".java" => "java",
+        ".kt" => "kotlin",
+        ".go" => "go",
+        ".rs" => "rust",
+        ".rb" => "ruby",
+        ".php" => "php",
+        ".swift" => "swift",
+        ".js" or ".jsx" => "javascript",
+        ".ts" or ".tsx" => "typescript",
+        ".json" or ".jsonc" => "json",
+        ".html" or ".htm" => "html",
+        ".css" or ".scss" or ".less" => "css",
+        ".xml" => "xml",
+        ".yaml" or ".yml" => "yaml",
+        ".toml" => "toml",
+        ".ini" or ".cfg" => "ini",
+        ".sh" or ".bat" or ".ps1" => "shell",
+        ".sql" => "sql",
+        _ => string.Empty,
+    };
 
     private async Task SetEditorContentAsync(string text, string filePath)
     {
@@ -444,6 +498,10 @@ public partial class MainWindow : Window
         var headContent = await Task.Run(() => GitService.TryGetHeadContent(filePath));
         var baseScript = $"window.__nomuSetGitBase({JsonSerializer.Serialize(headContent)})";
         await EditorView.CoreWebView2.ExecuteScriptAsync(baseScript);
+
+        _gitBranch = await Task.Run(() => GitService.TryGetCurrentBranch(filePath));
+        _filetype = GetFiletypeLabel(filePath);
+        UpdateStatusBar();
 
         var directory = Path.GetDirectoryName(filePath) ?? _rootDirectory;
         var basePath = Path.GetRelativePath(_rootDirectory, directory).Replace(Path.DirectorySeparatorChar, '/');
@@ -914,6 +972,36 @@ public partial class MainWindow : Window
         StatusPathText.Text = _activeDocument is null
             ? "ファイルが選択されていません"
             : (_activeDocument.IsDirty ? "* " : string.Empty) + Path.GetRelativePath(_rootDirectory, _activeDocument.FilePath);
+
+        BranchText.Text = _gitBranch is null ? string.Empty : $"\U0001F33F {_gitBranch}";
+        BranchText.Visibility = _gitBranch is null ? Visibility.Collapsed : Visibility.Visible;
+
+        FiletypeText.Text = _filetype;
+        CursorPositionText.Text = _activeDocument is null ? string.Empty : $"{_cursorLine}:{_cursorCol}";
+
+        if (_config.Editor.VimMode && _vimMode is not null)
+        {
+            ModeBadge.Visibility = Visibility.Visible;
+            ModeBadgeText.Text = _vimMode.ToUpperInvariant();
+            ModeBadge.Background = new SolidColorBrush(ModeColor(_vimMode));
+        }
+        else
+        {
+            ModeBadge.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private Color ModeColor(string vimMode)
+    {
+        var hex = vimMode.Split(' ')[0] switch
+        {
+            "normal" => _config.Statusline.ModeNormal,
+            "insert" => _config.Statusline.ModeInsert,
+            "visual" => _config.Statusline.ModeVisual,
+            "replace" => _config.Statusline.ModeReplace,
+            _ => _config.Statusline.ModeNormal,
+        };
+        return (Color)ColorConverter.ConvertFromString(hex);
     }
 
     private async Task SaveDocumentAsync(OpenDocument document)

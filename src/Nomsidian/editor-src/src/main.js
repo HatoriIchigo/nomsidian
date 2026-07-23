@@ -8,7 +8,7 @@ import { tags } from "@lezer/highlight";
 import { search, setSearchQuery, SearchQuery } from "@codemirror/search";
 import { diffLines } from "diff";
 import mermaid from "mermaid";
-import { vim } from "@replit/codemirror-vim";
+import { vim, getCM } from "@replit/codemirror-vim";
 import { languageForFilename, languageForInfo } from "./languages.js";
 
 mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
@@ -1006,9 +1006,29 @@ function createEditorState(doc, isMarkdown, filePath) {
                 if (update.docChanged) {
                     notifyHostChanged();
                 }
+                if (update.docChanged || update.selectionSet) {
+                    reportCursorPosition(update.view);
+                }
             }),
         ],
     });
+}
+
+// ---- ステータスライン(下部)用ブリッジ: カーソル位置とvimモード ----
+function reportCursorPosition(v) {
+    const pos = v.state.selection.main.head;
+    const line = v.state.doc.lineAt(pos);
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(
+            JSON.stringify({ type: "cursor", line: line.number, col: pos - line.from + 1 })
+        );
+    }
+}
+
+function reportVimMode(mode) {
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ type: "vimMode", mode }));
+    }
 }
 
 window.__nomuInit = function () {
@@ -1016,6 +1036,21 @@ window.__nomuInit = function () {
         state: createEditorState("", true),
         parent: document.getElementById("editor"),
     });
+
+    if (window.__nomuVimMode) {
+        // vim()拡張のViewPlugin(vimPlugin)はEditorView構築時に同期的に初期化され、
+        // view.cm(CM5互換シム)を生やす。getCM()経由でCM5スタイルのイベントAPIを使い、
+        // ノーマル/インサート/ビジュアル等のモード切り替えをステータスラインへ橋渡しする。
+        const cm = getCM(view);
+        if (cm) {
+            cm.on("vim-mode-change", (e) => {
+                reportVimMode(e.subMode ? `${e.mode} ${e.subMode}` : e.mode);
+            });
+        }
+        reportVimMode("normal");
+    }
+
+    reportCursorPosition(view);
 };
 
 window.__nomuSetContent = function (text, isMarkdown, filePath) {

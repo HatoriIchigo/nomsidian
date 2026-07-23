@@ -72,6 +72,7 @@ public static class ConfigLoader
             Theme = ReadTheme(config?.Get("theme") is { Type: DataType.Table } themeValue ? themeValue.Table : null),
             Font = ReadFont(config?.Get("font") is { Type: DataType.Table } fontValue ? fontValue.Table : null),
             Editor = ReadEditor(config?.Get("editor") is { Type: DataType.Table } editorValue ? editorValue.Table : null),
+            Statusline = ReadStatusline(config?.Get("statusline") is { Type: DataType.Table } statuslineValue ? statuslineValue.Table : null),
         };
     }
 
@@ -141,6 +142,29 @@ public static class ConfigLoader
         return new EditorConfig
         {
             VimMode = vimMode.Type == DataType.Boolean && vimMode.Boolean,
+        };
+    }
+
+    private static StatuslineConfig ReadStatusline(Table? table)
+    {
+        var d = StatuslineConfig.Default;
+        if (table is null)
+        {
+            return d;
+        }
+
+        var modeColors = table.Get("mode_colors") is { Type: DataType.Table } modeColorsValue ? modeColorsValue.Table : null;
+        if (modeColors is null)
+        {
+            return d;
+        }
+
+        return new StatuslineConfig
+        {
+            ModeNormal = ReadColor(modeColors, "normal", d.ModeNormal),
+            ModeInsert = ReadColor(modeColors, "insert", d.ModeInsert),
+            ModeVisual = ReadColor(modeColors, "visual", d.ModeVisual),
+            ModeReplace = ReadColor(modeColors, "replace", d.ModeReplace),
         };
     }
 

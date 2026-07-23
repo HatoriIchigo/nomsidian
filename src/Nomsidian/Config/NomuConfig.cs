@@ -5,6 +5,7 @@ public sealed class NomuConfig
     public ThemeConfig Theme { get; init; } = ThemeConfig.Default;
     public FontConfig Font { get; init; } = FontConfig.Default;
     public EditorConfig Editor { get; init; } = EditorConfig.Default;
+    public StatuslineConfig Statusline { get; init; } = StatuslineConfig.Default;
 }
 
 public sealed class ThemeConfig
@@ -35,4 +36,15 @@ public sealed class EditorConfig
     public bool VimMode { get; init; }
 
     public static EditorConfig Default { get; } = new();
+}
+
+/// <summary>下部ステータスラインの、vimモードごとのバッジ色。</summary>
+public sealed class StatuslineConfig
+{
+    public string ModeNormal { get; init; } = "#4caf50";
+    public string ModeInsert { get; init; } = "#4a90d9";
+    public string ModeVisual { get; init; } = "#b388ff";
+    public string ModeReplace { get; init; } = "#e06c75";
+
+    public static StatuslineConfig Default { get; } = new();
 }

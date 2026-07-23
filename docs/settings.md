@@ -64,6 +64,15 @@ return config
 | `family` | フォントファミリー名 | `Segoe UI` |
 | `size` | フォントサイズ（pt） | `12` |
 
+### `config.statusline.mode_colors`（`config.editor.vim_mode = true` の時のみ使う、モードバッジの色）
+
+| キー | 説明 | 既定値 |
+|---|---|---|
+| `normal` | ノーマルモード | `#4caf50` |
+| `insert` | インサートモード | `#4a90d9` |
+| `visual` | ビジュアルモード | `#b388ff` |
+| `replace` | 置換モード | `#e06c75` |
+
 ## 反映される範囲
 
 `config.theme` / `config.font` は、サイドバー・タブバー・ステータスバー・ファイル一覧など **WPFシェル側の見た目**に反映される。

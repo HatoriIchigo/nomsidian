@@ -26,4 +26,13 @@ config.editor = {
     vim_mode = true,
 }
 
+config.statusline = {
+    mode_colors = {
+        normal = "#4caf50",
+        insert = "#4a90d9",
+        visual = "#b388ff",
+        replace = "#e06c75",
+    },
+}
+
 return config
