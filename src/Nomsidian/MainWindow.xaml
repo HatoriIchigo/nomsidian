@@ -331,6 +331,27 @@
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         </Style>
 
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="16" ShadowDepth="2" Opacity="0.4" Color="Black" />
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- ==================== StatusBar ==================== -->
         <Style TargetType="StatusBar">
             <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
@@ -556,6 +577,12 @@
                                 <Line X1="9.8" Y1="9.8" X2="16" Y2="16" Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1.6" />
                             </Canvas>
                         </ToggleButton>
+                        <ToggleButton x:Name="FavoritesToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
+                                      Click="FavoritesToggleButton_OnClick" ToolTip="お気に入り">
+                            <Path Data="M1.5,0.5 L12.5,0.5 L12.5,15.5 L7,10.5 L1.5,15.5 Z"
+                                  Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1.2" StrokeLineJoin="Round"
+                                  Width="16" Height="16" Stretch="Uniform" />
+                        </ToggleButton>
                     </StackPanel>
                 </Border>
 
@@ -565,7 +592,15 @@
                                    Foreground="{DynamicResource MutedTextBrush}" />
                     </Border>
                     <Grid>
-                        <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged" />
+                        <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged"
+                                  ContextMenuOpening="FileTree_OnContextMenuOpening">
+                            <TreeView.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem x:Name="AddToFavoritesMenuItem" Header="お気に入りに追加"
+                                              Style="{StaticResource SubMenuItemStyle}" Click="AddToFavoritesMenuItem_OnClick" />
+                                </ContextMenu>
+                            </TreeView.ContextMenu>
+                        </TreeView>
                         <DockPanel x:Name="SearchPanel" Visibility="Collapsed">
                             <UniformGrid DockPanel.Dock="Top" Columns="3" Margin="8,8,8,0">
                                 <ToggleButton x:Name="SearchModeFileNameButton" Content="ファイル名" Tag="FileName"
@@ -583,6 +618,11 @@
                             <ListBox x:Name="SearchResultsList" Style="{StaticResource SearchResultsListStyle}"
                                      ItemTemplateSelector="{StaticResource SearchResultTemplateSelector}"
                                      SelectionChanged="SearchResultsList_OnSelectionChanged" />
+                        </DockPanel>
+                        <DockPanel x:Name="FavoritesPanel" Visibility="Collapsed">
+                            <ListBox x:Name="FavoritesList" Style="{StaticResource SearchResultsListStyle}"
+                                     ItemTemplate="{StaticResource SearchResultTemplate}"
+                                     SelectionChanged="FavoritesList_OnSelectionChanged" />
                         </DockPanel>
                     </Grid>
                 </DockPanel>

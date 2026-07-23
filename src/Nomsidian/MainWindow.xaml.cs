@@ -49,6 +49,8 @@ public partial class MainWindow : Window
     private bool _outlineVisible = true;
     private double _lastOutlineWidth = 200;
     private readonly ObservableCollection<HeadingItem> _headings = new();
+    private readonly ObservableCollection<FileNode> _favorites = new();
+    private FileNode? _contextMenuNode;
 
     public MainWindow(string rootDirectory, NomuConfig config)
     {
@@ -61,6 +63,8 @@ public partial class MainWindow : Window
         _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
         TabStrip.ItemsSource = _openDocuments;
         OutlineList.ItemsSource = _headings;
+        FavoritesList.ItemsSource = _favorites;
+        LoadFavorites();
         SourceInitialized += (_, _) => TryEnableDarkTitleBar();
         Loaded += async (_, _) => await RunAndReportErrorsAsync(InitializeEditorAsync);
         ReloadFileTree();
@@ -520,8 +524,10 @@ public partial class MainWindow : Window
         ShowSidebar();
         ExplorerToggleButton.IsChecked = true;
         SearchToggleButton.IsChecked = false;
+        FavoritesToggleButton.IsChecked = false;
         FileTree.Visibility = Visibility.Visible;
         SearchPanel.Visibility = Visibility.Collapsed;
+        FavoritesPanel.Visibility = Visibility.Collapsed;
         SidebarHeaderText.Text = Path.GetFileName(_rootDirectory.TrimEnd(Path.DirectorySeparatorChar)) is { Length: > 0 } name
             ? name.ToUpperInvariant()
             : "FILES";
@@ -532,10 +538,77 @@ public partial class MainWindow : Window
         ShowSidebar();
         SearchToggleButton.IsChecked = true;
         ExplorerToggleButton.IsChecked = false;
+        FavoritesToggleButton.IsChecked = false;
         FileTree.Visibility = Visibility.Collapsed;
         SearchPanel.Visibility = Visibility.Visible;
+        FavoritesPanel.Visibility = Visibility.Collapsed;
         SidebarHeaderText.Text = "SEARCH";
         SearchBox.Focus();
+    }
+
+    private void FavoritesToggleButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        ShowSidebar();
+        FavoritesToggleButton.IsChecked = true;
+        ExplorerToggleButton.IsChecked = false;
+        SearchToggleButton.IsChecked = false;
+        FileTree.Visibility = Visibility.Collapsed;
+        SearchPanel.Visibility = Visibility.Collapsed;
+        FavoritesPanel.Visibility = Visibility.Visible;
+        SidebarHeaderText.Text = "FAVORITES";
+    }
+
+    private void LoadFavorites()
+    {
+        _favorites.Clear();
+        foreach (var path in FavoritesService.Load())
+        {
+            if (File.Exists(path))
+            {
+                _favorites.Add(new FileNode { Name = Path.GetFileName(path), FullPath = path, IsDirectory = false });
+            }
+        }
+    }
+
+    private void FileTree_OnContextMenuOpening(object sender, System.Windows.Controls.ContextMenuEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        while (source is not null and not System.Windows.Controls.TreeViewItem)
+        {
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        _contextMenuNode = (source as System.Windows.Controls.TreeViewItem)?.DataContext as FileNode;
+
+        if (_contextMenuNode is null or { IsDirectory: true })
+        {
+            e.Handled = true;
+            return;
+        }
+
+        AddToFavoritesMenuItem.Header = $"「{_contextMenuNode.Name}」をお気に入りに追加";
+    }
+
+    private void AddToFavoritesMenuItem_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_contextMenuNode is not { IsDirectory: false } node)
+        {
+            return;
+        }
+
+        if (FavoritesService.Add(node.FullPath) &&
+            !_favorites.Any(f => string.Equals(f.FullPath, node.FullPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            _favorites.Add(node);
+        }
+    }
+
+    private void FavoritesList_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (FavoritesList.SelectedItem is FileNode node)
+        {
+            _ = RunAndReportErrorsAsync(() => OpenFileAsync(node.FullPath));
+        }
     }
 
     private void SearchModeButton_OnClick(object sender, RoutedEventArgs e)
