@@ -4,6 +4,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { syntaxTree } from "@codemirror/language";
+import { search, setSearchQuery, SearchQuery } from "@codemirror/search";
 import { diffLines } from "diff";
 import mermaid from "mermaid";
 import { vim } from "@replit/codemirror-vim";
@@ -813,6 +814,12 @@ const nomuTheme = EditorView.theme(
             justifyContent: "flex-start",
             whiteSpace: "pre-wrap",
         },
+        ".cm-searchMatch": {
+            backgroundColor: "rgba(136, 117, 255, 0.35)",
+        },
+        ".cm-searchMatch-selected": {
+            backgroundColor: "rgba(136, 117, 255, 0.65)",
+        },
     },
     { dark: true }
 );
@@ -960,6 +967,7 @@ function createEditorState(doc, isMarkdown) {
             gitGutterPlugin,
             lineNumbers(),
             hiddenGutterLinesField,
+            search({ top: true }),
             nomuTheme,
             EditorView.lineWrapping,
             EditorView.updateListener.of((update) => {
@@ -998,6 +1006,41 @@ window.__nomuSetGitBase = function (text) {
 
 window.__nomuSetBasePath = function (path) {
     vaultBasePath = path || "";
+};
+
+// ---- ファイル内検索(サイドバーの検索パネル用ブリッジ) ----
+// @codemirror/search の SearchQuery をハイライト表示(search()拡張)とマッチ列挙の両方に使う。
+window.__nomuSetInFileSearchQuery = function (query) {
+    if (!query) {
+        view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: "" })) });
+        return "[]";
+    }
+
+    const searchQuery = new SearchQuery({ search: query, caseSensitive: false });
+    view.dispatch({ effects: setSearchQuery.of(searchQuery) });
+
+    const matches = [];
+    const cursor = searchQuery.getCursor(view.state);
+    let result = cursor.next();
+    while (!result.done) {
+        const { from, to } = result.value;
+        const line = view.state.doc.lineAt(from);
+        matches.push({
+            from,
+            to,
+            line: line.number,
+            lineText: line.text,
+            matchStart: from - line.from,
+            matchLength: to - from,
+        });
+        result = cursor.next();
+    }
+    return JSON.stringify(matches);
+};
+
+window.__nomuGotoRange = function (from, to) {
+    view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
+    view.focus();
 };
 
 window.__nomuInit();

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -19,6 +20,13 @@ namespace Nomsidian;
 
 public partial class MainWindow : Window
 {
+    private enum SearchMode
+    {
+        FileName,
+        InFile,
+        CrossFile,
+    }
+
     private const string VirtualHostName = "nomu.local";
     private const string VaultVirtualHostName = "nomu.vault";
     private static readonly TimeSpan ExternalChangeDebounce = TimeSpan.FromMilliseconds(400);
@@ -36,6 +44,8 @@ public partial class MainWindow : Window
     private bool _sidebarVisible = true;
     private bool _isSwitchingTabProgrammatically;
     private double _lastSidebarWidth = 240;
+    private SearchMode _searchMode = SearchMode.FileName;
+    private CancellationTokenSource? _crossFileSearchCts;
 
     public MainWindow(string rootDirectory, NomuConfig config)
     {
@@ -520,20 +530,214 @@ public partial class MainWindow : Window
         SearchBox.Focus();
     }
 
+    private void SearchModeButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        var mode = (SearchMode)Enum.Parse(typeof(SearchMode), (string)((FrameworkElement)sender).Tag);
+        _searchMode = mode;
+
+        SearchModeFileNameButton.IsChecked = mode == SearchMode.FileName;
+        SearchModeInFileButton.IsChecked = mode == SearchMode.InFile;
+        SearchModeCrossFileButton.IsChecked = mode == SearchMode.CrossFile;
+
+        RunSearch(SearchBox.Text.Trim());
+        SearchBox.Focus();
+    }
+
     private void SearchBox_OnTextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
-        var query = SearchBox.Text.Trim();
+        RunSearch(SearchBox.Text.Trim());
+    }
+
+    private void RunSearch(string query)
+    {
+        switch (_searchMode)
+        {
+            case SearchMode.FileName:
+                RunFileNameSearch(query);
+                break;
+            case SearchMode.InFile:
+                _ = RunAndReportErrorsAsync(() => RunInFileSearchAsync(query));
+                break;
+            case SearchMode.CrossFile:
+                RunCrossFileSearch(query);
+                break;
+        }
+    }
+
+    private void RunFileNameSearch(string query)
+    {
         SearchResultsList.ItemsSource = query.Length == 0
             ? Array.Empty<FileNode>()
             : _allFiles.Where(f => f.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
+    private async Task RunInFileSearchAsync(string query)
+    {
+        if (query.Length == 0 || _activeDocument is null)
+        {
+            SearchResultsList.ItemsSource = Array.Empty<SearchMatch>();
+            return;
+        }
+
+        var script = $"window.__nomuSetInFileSearchQuery({JsonSerializer.Serialize(query)})";
+        var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync(script);
+        var raw = JsonSerializer.Deserialize<string>(resultJson) ?? "[]";
+        var jsMatches = JsonSerializer.Deserialize<List<JsSearchMatch>>(raw) ?? new List<JsSearchMatch>();
+
+        var filePath = _activeDocument.FilePath;
+        var fileName = _activeDocument.FileName;
+        SearchResultsList.ItemsSource = jsMatches.Select(m => new SearchMatch
+        {
+            FilePath = filePath,
+            FileName = fileName,
+            Line = m.Line,
+            LineText = m.LineText,
+            MatchStart = m.MatchStart,
+            MatchLength = m.MatchLength,
+            From = m.From,
+            To = m.To,
+        }).ToList();
+    }
+
+    private void RunCrossFileSearch(string query)
+    {
+        _crossFileSearchCts?.Cancel();
+
+        if (query.Length == 0)
+        {
+            SearchResultsList.ItemsSource = Array.Empty<SearchMatch>();
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _crossFileSearchCts = cts;
+        _ = RunAndReportCrossFileSearchAsync(query, cts);
+    }
+
+    private async Task RunAndReportCrossFileSearchAsync(string query, CancellationTokenSource cts)
+    {
+        try
+        {
+            await Task.Delay(150, cts.Token);
+
+            var files = _allFiles.ToList();
+            var matches = await Task.Run(() => SearchAllFiles(files, query, cts.Token), cts.Token);
+
+            if (!cts.Token.IsCancellationRequested)
+            {
+                SearchResultsList.ItemsSource = matches;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 新しい入力によってキャンセルされた場合は何もしない
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.ToString(), "nomsidian エラー");
+        }
+        finally
+        {
+            if (_crossFileSearchCts == cts)
+            {
+                _crossFileSearchCts = null;
+            }
+        }
+    }
+
+    private static List<SearchMatch> SearchAllFiles(List<FileNode> files, string query, CancellationToken token)
+    {
+        var results = new List<SearchMatch>();
+        foreach (var file in files)
+        {
+            token.ThrowIfCancellationRequested();
+
+            string text;
+            try
+            {
+                text = File.ReadAllText(file.FullPath);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (var (lineNumber, lineStart, lineText) in EnumerateLines(text))
+            {
+                var matchStart = lineText.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+                if (matchStart < 0)
+                {
+                    continue;
+                }
+
+                results.Add(new SearchMatch
+                {
+                    FilePath = file.FullPath,
+                    FileName = file.Name,
+                    Line = lineNumber,
+                    LineText = lineText,
+                    MatchStart = matchStart,
+                    MatchLength = query.Length,
+                    From = lineStart + matchStart,
+                    To = lineStart + matchStart + query.Length,
+                });
+            }
+        }
+
+        return results;
+    }
+
+    // CM6のdocは生テキストの文字インデックスをそのまま位置として扱うため、
+    // ここで計算する行頭オフセットはエディタ側の from/to とそのまま対応する。
+    private static IEnumerable<(int LineNumber, int LineStart, string LineText)> EnumerateLines(string text)
+    {
+        var offset = 0;
+        var lineNumber = 1;
+        foreach (var rawLine in text.Split('\n'))
+        {
+            var line = rawLine.EndsWith('\r') ? rawLine[..^1] : rawLine;
+            yield return (lineNumber, offset, line);
+            offset += rawLine.Length + 1;
+            lineNumber++;
+        }
+    }
+
     private void SearchResultsList_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (SearchResultsList.SelectedItem is FileNode node)
+        switch (SearchResultsList.SelectedItem)
         {
-            _ = RunAndReportErrorsAsync(() => OpenFileAsync(node.FullPath));
+            case FileNode node:
+                _ = RunAndReportErrorsAsync(() => OpenFileAsync(node.FullPath));
+                break;
+            case SearchMatch match:
+                _ = RunAndReportErrorsAsync(() => OpenSearchMatchAsync(match));
+                break;
         }
+    }
+
+    private async Task OpenSearchMatchAsync(SearchMatch match)
+    {
+        if (_activeDocument?.FilePath != match.FilePath)
+        {
+            await OpenFileAsync(match.FilePath);
+        }
+
+        await EditorView.CoreWebView2.ExecuteScriptAsync($"window.__nomuGotoRange({match.From}, {match.To})");
+        EditorView.Focus();
+    }
+
+    private sealed class JsSearchMatch
+    {
+        public int From { get; set; }
+        public int To { get; set; }
+        public int Line { get; set; }
+        public string LineText { get; set; } = string.Empty;
+        public int MatchStart { get; set; }
+        public int MatchLength { get; set; }
     }
 
     private void UpdateStatusBar()

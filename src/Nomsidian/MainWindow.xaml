@@ -65,6 +65,23 @@
             </StackPanel>
         </DataTemplate>
 
+        <DataTemplate x:Key="SearchMatchTemplate" DataType="{x:Type local:SearchMatch}">
+            <StackPanel Margin="0,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#128196;" FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding FileName}" Foreground="{DynamicResource TextBrush}" FontSize="12" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Line, StringFormat=':{0}'}" Foreground="{DynamicResource MutedTextBrush}"
+                               FontSize="11" VerticalAlignment="Center" Margin="4,0,0,0" />
+                </StackPanel>
+                <TextBlock Text="{Binding LineText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11"
+                           Margin="22,2,0,0" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </DataTemplate>
+
+        <local:SearchResultTemplateSelector x:Key="SearchResultTemplateSelector"
+                                             FileNameTemplate="{StaticResource SearchResultTemplate}"
+                                             MatchTemplate="{StaticResource SearchMatchTemplate}" />
+
         <!-- ==================== TreeView ==================== -->
         <Style x:Key="TreeToggleStyle" TargetType="ToggleButton">
             <Setter Property="Focusable" Value="False" />
@@ -188,6 +205,32 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SearchModeTabStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="0,6" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderThickness="0,0,0,2" BorderBrush="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -516,10 +559,21 @@
                     <Grid>
                         <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged" />
                         <DockPanel x:Name="SearchPanel" Visibility="Collapsed">
+                            <UniformGrid DockPanel.Dock="Top" Columns="3" Margin="8,8,8,0">
+                                <ToggleButton x:Name="SearchModeFileNameButton" Content="ファイル名" Tag="FileName"
+                                              Style="{StaticResource SearchModeTabStyle}" IsChecked="True"
+                                              Click="SearchModeButton_OnClick" />
+                                <ToggleButton x:Name="SearchModeInFileButton" Content="ファイル内" Tag="InFile"
+                                              Style="{StaticResource SearchModeTabStyle}"
+                                              Click="SearchModeButton_OnClick" />
+                                <ToggleButton x:Name="SearchModeCrossFileButton" Content="全文" Tag="CrossFile"
+                                              Style="{StaticResource SearchModeTabStyle}"
+                                              Click="SearchModeButton_OnClick" />
+                            </UniformGrid>
                             <TextBox x:Name="SearchBox" DockPanel.Dock="Top" Style="{StaticResource SearchBoxStyle}"
                                      Margin="8,8,8,4" TextChanged="SearchBox_OnTextChanged" />
                             <ListBox x:Name="SearchResultsList" Style="{StaticResource SearchResultsListStyle}"
-                                     ItemTemplate="{StaticResource SearchResultTemplate}"
+                                     ItemTemplateSelector="{StaticResource SearchResultTemplateSelector}"
                                      SelectionChanged="SearchResultsList_OnSelectionChanged" />
                         </DockPanel>
                     </Grid>
