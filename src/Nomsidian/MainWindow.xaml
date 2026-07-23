@@ -355,6 +355,23 @@
             </Setter>
         </Style>
 
+        <Style x:Key="CloseButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#E81123" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
             <Setter Property="Width" Value="32" />
             <Style.Triggers>
@@ -391,7 +408,7 @@
     </Window.Resources>
     <Border x:Name="RootBorder" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
         <DockPanel>
-            <DockPanel x:Name="TitleBar" DockPanel.Dock="Top" Height="36" Background="{StaticResource PanelBgBrush}">
+            <DockPanel x:Name="TitleBar" DockPanel.Dock="Top" Height="36" Background="{StaticResource PanelBgBrush}" LastChildFill="False">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="6,0,0,0">
                     <Button x:Name="BackButton" Style="{StaticResource IconButtonStyle}" Click="BackButton_OnClick"
                             ToolTip="戻る" IsEnabled="False">
@@ -425,17 +442,19 @@
                         </Canvas>
                     </ToggleButton>
                 </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButtonStyle}" Click="MinimizeButton_OnClick" ToolTip="最小化">
+                        <Path Data="M0,5 H10" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                    </Button>
+                    <Button x:Name="MaximizeRestoreButton" Style="{StaticResource CaptionButtonStyle}" Click="MaximizeRestoreButton_OnClick" ToolTip="最大化">
+                        <Path x:Name="MaximizeRestoreIcon" Data="M0.5,0.5 H9.5 V9.5 H0.5 Z" Stroke="{StaticResource MutedTextBrush}"
+                              StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                    </Button>
+                    <Button x:Name="CloseButton" Style="{StaticResource CloseButtonStyle}" Click="CloseButton_OnClick" ToolTip="閉じる">
+                        <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" Stroke="{StaticResource TextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                    </Button>
+                </StackPanel>
             </DockPanel>
-
-            <Menu DockPanel.Dock="Top">
-                <MenuItem Header="ファイル(_F)" Style="{StaticResource TopMenuItemStyle}">
-                    <MenuItem Header="開く(_O)..." Click="OpenMenuItem_OnClick" InputGestureText="Ctrl+O" Style="{StaticResource SubMenuItemStyle}" />
-                    <MenuItem Header="保存(_S)" Click="SaveMenuItem_OnClick" InputGestureText="Ctrl+S" Style="{StaticResource SubMenuItemStyle}" />
-                    <MenuItem Header="名前を付けて保存(_A)..." Click="SaveAsMenuItem_OnClick" Style="{StaticResource SubMenuItemStyle}" />
-                    <Separator />
-                    <MenuItem Header="終了(_X)" Click="ExitMenuItem_OnClick" Style="{StaticResource SubMenuItemStyle}" />
-                </MenuItem>
-            </Menu>
 
             <StatusBar DockPanel.Dock="Bottom">
                 <StatusBarItem>

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
@@ -70,12 +71,29 @@ public partial class MainWindow : Window
         }
     }
 
+    // タイトルバー右端の最大化ボタンのアイコン（四角＝最大化 / 二重四角＝元に戻す）。
+    private const string MaximizeGlyph = "M0.5,0.5 H9.5 V9.5 H0.5 Z";
+    private const string RestoreGlyph = "M2.5,2.5 V0.5 H9.5 V7.5 H7.5 M0.5,2.5 H7.5 V9.5 H0.5 Z";
+
     private void MainWindow_OnStateChanged(object? sender, EventArgs e)
     {
-        RootBorder.Margin = WindowState == WindowState.Maximized
+        var maximized = WindowState == WindowState.Maximized;
+        RootBorder.Margin = maximized
             ? new Thickness(SystemParameters.WindowResizeBorderThickness.Left)
             : new Thickness(0);
+
+        MaximizeRestoreIcon.Data = Geometry.Parse(maximized ? RestoreGlyph : MaximizeGlyph);
+        MaximizeRestoreButton.ToolTip = maximized ? "元に戻す" : "最大化";
     }
+
+    private void MinimizeButton_OnClick(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void MaximizeRestoreButton_OnClick(object sender, RoutedEventArgs e)
+        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void CloseButton_OnClick(object sender, RoutedEventArgs e)
+        => Close();
 
     private void AutoSaveTimer_OnTick(object? sender, EventArgs e)
     {
@@ -491,46 +509,6 @@ public partial class MainWindow : Window
             : (_activeDocument.IsDirty ? "* " : string.Empty) + Path.GetRelativePath(_rootDirectory, _activeDocument.FilePath);
     }
 
-    private void OpenMenuItem_OnClick(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog
-        {
-            Filter = "Markdown ファイル (*.md)|*.md|すべてのファイル (*.*)|*.*",
-            InitialDirectory = _rootDirectory,
-        };
-
-        if (dialog.ShowDialog(this) == true)
-        {
-            _ = RunAndReportErrorsAsync(() => OpenFileAsync(dialog.FileName));
-        }
-    }
-
-    private void SaveMenuItem_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_activeDocument is null)
-        {
-            SaveAsMenuItem_OnClick(sender, e);
-            return;
-        }
-
-        _ = RunAndReportErrorsAsync(() => SaveDocumentAsync(_activeDocument));
-    }
-
-    private void SaveAsMenuItem_OnClick(object sender, RoutedEventArgs e)
-    {
-        var dialog = new SaveFileDialog
-        {
-            Filter = "Markdown ファイル (*.md)|*.md|すべてのファイル (*.*)|*.*",
-            InitialDirectory = _rootDirectory,
-            FileName = _activeDocument is null ? "untitled.md" : Path.GetFileName(_activeDocument.FilePath),
-        };
-
-        if (dialog.ShowDialog(this) == true)
-        {
-            _ = RunAndReportErrorsAsync(() => SaveActiveDocumentAsAsync(dialog.FileName));
-        }
-    }
-
     private async Task SaveDocumentAsync(OpenDocument document)
     {
         var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuGetContent()");
@@ -541,41 +519,6 @@ public partial class MainWindow : Window
         document.Text = text;
         document.IsDirty = false;
         UpdateStatusBar();
-    }
-
-    private async Task SaveActiveDocumentAsAsync(string newPath)
-    {
-        var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuGetContent()");
-        var text = JsonSerializer.Deserialize<string>(resultJson) ?? string.Empty;
-
-        _ignoreWatcherUntilUtc = DateTime.UtcNow.Add(OwnWriteIgnoreWindow);
-        FileService.WriteAllText(newPath, text);
-
-        if (_activeDocument is not null)
-        {
-            _activeDocument.UpdatePath(newPath);
-            _activeDocument.Text = text;
-            _activeDocument.IsDirty = false;
-        }
-        else
-        {
-            var document = new OpenDocument(newPath, text);
-            _openDocuments.Add(document);
-            _activeDocument = document;
-            _isSwitchingTabProgrammatically = true;
-            TabStrip.SelectedItem = document;
-            _isSwitchingTabProgrammatically = false;
-        }
-
-        SetupFileWatcher(newPath);
-        RecordNavigation(newPath);
-        UpdateStatusBar();
-        ReloadFileTree();
-    }
-
-    private void ExitMenuItem_OnClick(object sender, RoutedEventArgs e)
-    {
-        Close();
     }
 
     private bool _closeConfirmed;
