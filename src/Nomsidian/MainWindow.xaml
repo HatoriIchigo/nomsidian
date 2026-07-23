@@ -303,38 +303,72 @@
             </Setter>
         </Style>
 
-        <!-- ==================== ScrollBar（サイドバー用の細身ダーク版） ==================== -->
-        <Style x:Key="DarkScrollThumb" TargetType="Thumb">
+        <!-- ==================== ScrollBar（VSCode風の細身オーバーレイ版） ==================== -->
+        <SolidColorBrush x:Key="ScrollThumbBrush" Color="#8a8a90" Opacity="0.25" />
+        <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#8a8a90" Opacity="0.45" />
+        <SolidColorBrush x:Key="ScrollThumbDragBrush" Color="#8a8a90" Opacity="0.6" />
+
+        <Style x:Key="ScrollThumbStyle" TargetType="Thumb">
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Thumb">
-                        <Border Background="{StaticResource BorderBrush}" CornerRadius="3" />
+                        <Border x:Name="ThumbBorder" Background="{StaticResource ScrollThumbBrush}" CornerRadius="2" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource ScrollThumbHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbBorder" Property="Background" Value="{StaticResource ScrollThumbDragBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+
         <Style TargetType="ScrollBar">
-            <Setter Property="Width" Value="10" />
             <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Width" Value="4" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ScrollBar">
-                        <Grid>
-                            <Track Name="PART_Track" IsDirectionReversed="True">
-                                <Track.Thumb>
-                                    <Thumb Style="{StaticResource DarkScrollThumb}" Margin="2,0" />
-                                </Track.Thumb>
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" />
-                                </Track.DecreaseRepeatButton>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" />
-                                </Track.IncreaseRepeatButton>
-                            </Track>
-                        </Grid>
+                        <Track Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource ScrollThumbStyle}" Margin="1,0,0,0" />
+                            </Track.Thumb>
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" />
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" />
+                            </Track.IncreaseRepeatButton>
+                        </Track>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto" />
+                    <Setter Property="Height" Value="4" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ScrollBar">
+                                <Track Name="PART_Track">
+                                    <Track.Thumb>
+                                        <Thumb Style="{StaticResource ScrollThumbStyle}" Margin="0,1,0,0" />
+                                    </Track.Thumb>
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageLeftCommand" Opacity="0" />
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="ScrollBar.PageRightCommand" Opacity="0" />
+                                    </Track.IncreaseRepeatButton>
+                                </Track>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <!-- ==================== タイトルバーの自前キャプションボタン / アイコン ==================== -->
@@ -387,24 +421,28 @@
             </Style.Triggers>
         </Style>
 
-        <Style x:Key="ToggleIconButtonStyle" TargetType="ToggleButton">
-            <Setter Property="Width" Value="32" />
-            <Setter Property="Height" Value="36" />
+        <!-- ==================== アクティビティバー（VSCode風、サイドバーの左に配置） ==================== -->
+        <Style x:Key="ActivityBarButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="48" />
+            <Setter Property="Height" Value="48" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Focusable" Value="False" />
-            <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
+                        <Grid>
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <Border x:Name="AccentBar" Width="2" HorizontalAlignment="Left"
+                                    Background="{StaticResource AccentBrush}" Visibility="Collapsed" />
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                                <Setter TargetName="AccentBar" Property="Visibility" Value="Visible" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -416,37 +454,11 @@
         <DockPanel>
             <DockPanel x:Name="TitleBar" DockPanel.Dock="Top" Height="36" Background="{StaticResource PanelBgBrush}" LastChildFill="False">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="6,0,0,0">
-                    <Button x:Name="BackButton" Style="{StaticResource IconButtonStyle}" Click="BackButton_OnClick"
-                            ToolTip="戻る" IsEnabled="False">
-                        <Path Data="M 7,1.5 L 2.5,6 L 7,10.5" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.4"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                              Width="10" Height="10" Stretch="None" />
-                    </Button>
-                    <Button x:Name="ForwardButton" Style="{StaticResource IconButtonStyle}" Click="ForwardButton_OnClick"
-                            ToolTip="進む" IsEnabled="False">
-                        <Path Data="M 3,1.5 L 7.5,6 L 3,10.5" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.4"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                              Width="10" Height="10" Stretch="None" />
-                    </Button>
                     <Button x:Name="SidebarToggleButton" Style="{StaticResource IconButtonStyle}" Click="SidebarToggleButton_OnClick"
-                            ToolTip="サイドバーの表示切り替え" Margin="8,0,0,0">
+                            ToolTip="サイドバーの表示切り替え">
                         <Path Data="M0.5,0.5 L9.5,0.5 L9.5,9.5 L0.5,9.5 Z M3.5,0.5 L3.5,9.5"
                               Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
                     </Button>
-                    <ToggleButton x:Name="ExplorerToggleButton" Style="{StaticResource ToggleIconButtonStyle}"
-                                  Click="ExplorerToggleButton_OnClick" ToolTip="ファイル一覧" IsChecked="True">
-                        <Path Data="M0.5,2.5 L3.5,2.5 L4.5,3.5 L9.5,3.5 L9.5,8.5 L0.5,8.5 Z"
-                              Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" StrokeLineJoin="Round"
-                              Width="10" Height="10" Stretch="None" />
-                    </ToggleButton>
-                    <ToggleButton x:Name="SearchToggleButton" Style="{StaticResource ToggleIconButtonStyle}"
-                                  Click="SearchToggleButton_OnClick" ToolTip="検索">
-                        <Canvas Width="10" Height="10">
-                            <Ellipse Canvas.Left="0" Canvas.Top="0" Width="7" Height="7"
-                                     Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" />
-                            <Line X1="6.2" Y1="6.2" X2="10" Y2="10" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.2" />
-                        </Canvas>
-                    </ToggleButton>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButtonStyle}" Click="MinimizeButton_OnClick" ToolTip="最小化">
@@ -470,12 +482,33 @@
 
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition x:Name="SidebarColumn" Width="240" MinWidth="140" />
                     <ColumnDefinition Width="1" />
                     <ColumnDefinition Width="*" MinWidth="300" />
                 </Grid.ColumnDefinitions>
 
-                <DockPanel x:Name="SidebarPanel" Grid.Column="0" Background="{StaticResource SidebarBgBrush}">
+                <Border x:Name="ActivityBar" Grid.Column="0" Background="{StaticResource PanelBgBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                    <StackPanel Orientation="Vertical" Margin="0,6,0,0">
+                        <ToggleButton x:Name="ExplorerToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
+                                      Click="ExplorerToggleButton_OnClick" ToolTip="ファイル一覧" IsChecked="True">
+                            <Path Data="M0.5,2.5 L3.5,2.5 L4.5,3.5 L9.5,3.5 L9.5,8.5 L0.5,8.5 Z"
+                                  Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.2" StrokeLineJoin="Round"
+                                  Width="16" Height="16" Stretch="Uniform" />
+                        </ToggleButton>
+                        <ToggleButton x:Name="SearchToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
+                                      Click="SearchToggleButton_OnClick" ToolTip="検索">
+                            <Canvas Width="16" Height="16">
+                                <Ellipse Canvas.Left="0" Canvas.Top="0" Width="11" Height="11"
+                                         Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.4" />
+                                <Line X1="9.8" Y1="9.8" X2="16" Y2="16" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.6" />
+                            </Canvas>
+                        </ToggleButton>
+                    </StackPanel>
+                </Border>
+
+                <DockPanel x:Name="SidebarPanel" Grid.Column="1" Background="{StaticResource SidebarBgBrush}">
                     <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
                         <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{StaticResource MutedTextBrush}" />
@@ -492,10 +525,10 @@
                     </Grid>
                 </DockPanel>
 
-                <Border x:Name="SidebarSplitterBorder" Grid.Column="1" Background="{StaticResource BorderBrush}" />
-                <GridSplitter x:Name="SidebarSplitter" Grid.Column="1" Width="1" HorizontalAlignment="Stretch" Background="Transparent" />
+                <Border x:Name="SidebarSplitterBorder" Grid.Column="2" Background="{StaticResource BorderBrush}" />
+                <GridSplitter x:Name="SidebarSplitter" Grid.Column="2" Width="1" HorizontalAlignment="Stretch" Background="Transparent" />
 
-                <DockPanel Grid.Column="2">
+                <DockPanel Grid.Column="3">
                     <Border DockPanel.Dock="Top" Background="{StaticResource PanelBgBrush}"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
                         <ListBox x:Name="TabStrip" Style="{StaticResource TabStripStyle}"

@@ -26,14 +26,11 @@ public partial class MainWindow : Window
     private readonly string _rootDirectory;
     private readonly TaskCompletionSource _editorReadyTcs = new();
     private readonly DispatcherTimer _externalChangeTimer;
-    private readonly List<string> _navigationHistory = new();
     private readonly List<FileNode> _allFiles = new();
     private readonly ObservableCollection<OpenDocument> _openDocuments = new();
     private FileSystemWatcher? _fileWatcher;
     private DateTime _ignoreWatcherUntilUtc = DateTime.MinValue;
     private OpenDocument? _activeDocument;
-    private int _navigationIndex = -1;
-    private bool _isNavigatingHistory;
     private bool _sidebarVisible = true;
     private bool _isSwitchingTabProgrammatically;
     private double _lastSidebarWidth = 240;
@@ -293,7 +290,6 @@ public partial class MainWindow : Window
 
         _activeDocument = document;
         UpdateStatusBar();
-        RecordNavigation(document.FilePath);
         SetupFileWatcher(document.FilePath);
 
         _isSwitchingTabProgrammatically = true;
@@ -434,81 +430,6 @@ public partial class MainWindow : Window
         UpdateStatusBar();
 
         await SetEditorContentAsync(document.Text, document.FilePath);
-    }
-
-    private void RecordNavigation(string path)
-    {
-        if (_isNavigatingHistory)
-        {
-            return;
-        }
-
-        if (_navigationIndex >= 0 && _navigationIndex < _navigationHistory.Count
-            && _navigationHistory[_navigationIndex] == path)
-        {
-            return;
-        }
-
-        if (_navigationIndex < _navigationHistory.Count - 1)
-        {
-            _navigationHistory.RemoveRange(_navigationIndex + 1, _navigationHistory.Count - _navigationIndex - 1);
-        }
-
-        _navigationHistory.Add(path);
-        _navigationIndex = _navigationHistory.Count - 1;
-        UpdateNavigationButtons();
-    }
-
-    private void UpdateNavigationButtons()
-    {
-        BackButton.IsEnabled = _navigationIndex > 0;
-        ForwardButton.IsEnabled = _navigationIndex >= 0 && _navigationIndex < _navigationHistory.Count - 1;
-    }
-
-    private void BackButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_navigationIndex <= 0)
-        {
-            return;
-        }
-
-        _navigationIndex--;
-        UpdateNavigationButtons();
-        _isNavigatingHistory = true;
-        _ = RunAndReportErrorsAsync(async () =>
-        {
-            try
-            {
-                await OpenFileAsync(_navigationHistory[_navigationIndex]);
-            }
-            finally
-            {
-                _isNavigatingHistory = false;
-            }
-        });
-    }
-
-    private void ForwardButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_navigationIndex < 0 || _navigationIndex >= _navigationHistory.Count - 1)
-        {
-            return;
-        }
-
-        _navigationIndex++;
-        UpdateNavigationButtons();
-        _isNavigatingHistory = true;
-        _ = RunAndReportErrorsAsync(async () =>
-        {
-            try
-            {
-                await OpenFileAsync(_navigationHistory[_navigationIndex]);
-            }
-            finally
-            {
-                _isNavigatingHistory = false;
-            }
-        });
     }
 
     private void SidebarToggleButton_OnClick(object sender, RoutedEventArgs e)

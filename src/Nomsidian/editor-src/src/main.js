@@ -637,6 +637,23 @@ const nomuTheme = EditorView.theme(
         ".cm-scroller": {
             overflow: "auto",
         },
+        ".cm-scroller::-webkit-scrollbar": {
+            width: "4px",
+            height: "4px",
+        },
+        ".cm-scroller::-webkit-scrollbar-track": {
+            background: "transparent",
+        },
+        ".cm-scroller::-webkit-scrollbar-thumb": {
+            backgroundColor: "rgba(138, 138, 144, 0.25)",
+            borderRadius: "2px",
+        },
+        ".cm-scroller::-webkit-scrollbar-thumb:hover": {
+            backgroundColor: "rgba(138, 138, 144, 0.45)",
+        },
+        ".cm-scroller::-webkit-scrollbar-thumb:active": {
+            backgroundColor: "rgba(138, 138, 144, 0.6)",
+        },
         ".cm-gutters": {
             backgroundColor: "#1e1e1e",
             color: "#5a5a5a",
