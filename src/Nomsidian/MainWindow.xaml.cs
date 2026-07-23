@@ -18,16 +18,14 @@ namespace Nomsidian;
 public partial class MainWindow : Window
 {
     private const string VirtualHostName = "nomu.local";
-    private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ExternalChangeDebounce = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan OwnWriteIgnoreWindow = TimeSpan.FromMilliseconds(750);
 
     private readonly string _rootDirectory;
     private readonly TaskCompletionSource _editorReadyTcs = new();
-    private readonly DispatcherTimer _autoSaveTimer;
     private readonly DispatcherTimer _externalChangeTimer;
     private readonly List<string> _navigationHistory = new();
-    private readonly List<MarkdownFileNode> _allFiles = new();
+    private readonly List<FileNode> _allFiles = new();
     private readonly ObservableCollection<OpenDocument> _openDocuments = new();
     private FileSystemWatcher? _fileWatcher;
     private DateTime _ignoreWatcherUntilUtc = DateTime.MinValue;
@@ -43,8 +41,6 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         _rootDirectory = rootDirectory;
-        _autoSaveTimer = new DispatcherTimer { Interval = AutoSaveDelay };
-        _autoSaveTimer.Tick += AutoSaveTimer_OnTick;
         _externalChangeTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
         _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
         TabStrip.ItemsSource = _openDocuments;
@@ -95,20 +91,22 @@ public partial class MainWindow : Window
     private void CloseButton_OnClick(object sender, RoutedEventArgs e)
         => Close();
 
-    private void AutoSaveTimer_OnTick(object? sender, EventArgs e)
+    private async Task SaveActiveDocumentIfDirtyAsync()
     {
-        _autoSaveTimer.Stop();
-        _ = RunAndReportErrorsAsync(FlushPendingAutoSaveAsync);
-    }
-
-    private async Task FlushPendingAutoSaveAsync()
-    {
-        _autoSaveTimer.Stop();
-
         if (_activeDocument is { IsDirty: true } document)
         {
             await SaveDocumentAsync(document);
         }
+    }
+
+    private void SaveCommand_OnCanExecute(object sender, System.Windows.Input.CanExecuteRoutedEventArgs e)
+    {
+        e.CanExecute = _activeDocument is not null;
+    }
+
+    private void SaveCommand_OnExecuted(object sender, RoutedEventArgs e)
+    {
+        _ = RunAndReportErrorsAsync(SaveActiveDocumentIfDirtyAsync);
     }
 
     private static async Task RunAndReportErrorsAsync(Func<Task> action)
@@ -157,17 +155,22 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (type != "change" || _activeDocument is null)
+        if (_activeDocument is null || type is not ("change" or "save"))
         {
             return;
         }
 
-        _activeDocument.Text = root.GetProperty("text").GetString() ?? string.Empty;
+        var text = root.GetProperty("text").GetString() ?? string.Empty;
+        _activeDocument.Text = text;
+
+        if (type == "save")
+        {
+            _ = RunAndReportErrorsAsync(() => WriteDocumentAsync(_activeDocument, text));
+            return;
+        }
+
         _activeDocument.IsDirty = true;
         UpdateStatusBar();
-
-        _autoSaveTimer.Stop();
-        _autoSaveTimer.Start();
     }
 
     private void ReloadFileTree()
@@ -184,7 +187,7 @@ public partial class MainWindow : Window
         _allFiles.AddRange(FlattenFiles(root));
     }
 
-    private static IEnumerable<MarkdownFileNode> FlattenFiles(MarkdownFileNode node)
+    private static IEnumerable<FileNode> FlattenFiles(FileNode node)
     {
         foreach (var child in node.Children)
         {
@@ -204,7 +207,7 @@ public partial class MainWindow : Window
 
     private void FileTree_OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (e.NewValue is MarkdownFileNode { IsDirectory: false } node)
+        if (e.NewValue is FileNode { IsDirectory: false } node)
         {
             _ = RunAndReportErrorsAsync(() => OpenFileAsync(node.FullPath));
         }
@@ -234,7 +237,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        await FlushPendingAutoSaveAsync();
+        await SaveActiveDocumentIfDirtyAsync();
 
         _activeDocument = document;
         UpdateStatusBar();
@@ -245,8 +248,7 @@ public partial class MainWindow : Window
         TabStrip.SelectedItem = document;
         _isSwitchingTabProgrammatically = false;
 
-        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(document.Text)})";
-        await EditorView.CoreWebView2.ExecuteScriptAsync(script);
+        await SetEditorContentAsync(document.Text, document.FilePath);
     }
 
     private void TabStrip_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -273,7 +275,7 @@ public partial class MainWindow : Window
         var wasActive = document == _activeDocument;
         if (wasActive)
         {
-            await FlushPendingAutoSaveAsync();
+            await SaveActiveDocumentIfDirtyAsync();
         }
 
         var index = _openDocuments.IndexOf(document);
@@ -296,8 +298,22 @@ public partial class MainWindow : Window
             _fileWatcher?.Dispose();
             _fileWatcher = null;
             UpdateStatusBar();
-            await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuSetContent('')");
+            await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuSetContent('', true)");
         }
+    }
+
+    private static bool IsMarkdownFile(string path) =>
+        Path.GetExtension(path) is ".md" or ".markdown";
+
+    private async Task SetEditorContentAsync(string text, string filePath)
+    {
+        var isMarkdown = IsMarkdownFile(filePath) ? "true" : "false";
+        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(text)}, {isMarkdown})";
+        await EditorView.CoreWebView2.ExecuteScriptAsync(script);
+
+        var headContent = await Task.Run(() => GitService.TryGetHeadContent(filePath));
+        var baseScript = $"window.__nomuSetGitBase({JsonSerializer.Serialize(headContent)})";
+        await EditorView.CoreWebView2.ExecuteScriptAsync(baseScript);
     }
 
     private void SetupFileWatcher(string path)
@@ -356,8 +372,7 @@ public partial class MainWindow : Window
         document.Text = text;
         UpdateStatusBar();
 
-        var script = $"window.__nomuSetContent({JsonSerializer.Serialize(document.Text)})";
-        await EditorView.CoreWebView2.ExecuteScriptAsync(script);
+        await SetEditorContentAsync(document.Text, document.FilePath);
     }
 
     private void RecordNavigation(string path)
@@ -490,13 +505,13 @@ public partial class MainWindow : Window
     {
         var query = SearchBox.Text.Trim();
         SearchResultsList.ItemsSource = query.Length == 0
-            ? Array.Empty<MarkdownFileNode>()
+            ? Array.Empty<FileNode>()
             : _allFiles.Where(f => f.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     private void SearchResultsList_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (SearchResultsList.SelectedItem is MarkdownFileNode node)
+        if (SearchResultsList.SelectedItem is FileNode node)
         {
             _ = RunAndReportErrorsAsync(() => OpenFileAsync(node.FullPath));
         }
@@ -513,19 +528,24 @@ public partial class MainWindow : Window
     {
         var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync("window.__nomuGetContent()");
         var text = JsonSerializer.Deserialize<string>(resultJson) ?? document.Text;
+        await WriteDocumentAsync(document, text);
+    }
 
+    private Task WriteDocumentAsync(OpenDocument document, string text)
+    {
         _ignoreWatcherUntilUtc = DateTime.UtcNow.Add(OwnWriteIgnoreWindow);
         FileService.WriteAllText(document.FilePath, text);
         document.Text = text;
         document.IsDirty = false;
         UpdateStatusBar();
+        return Task.CompletedTask;
     }
 
     private bool _closeConfirmed;
 
     private void MainWindow_OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_closeConfirmed || !_autoSaveTimer.IsEnabled && _activeDocument?.IsDirty != true)
+        if (_closeConfirmed || _activeDocument?.IsDirty != true)
         {
             return;
         }
@@ -536,7 +556,7 @@ public partial class MainWindow : Window
 
     private async Task CloseAfterFlushAsync()
     {
-        await RunAndReportErrorsAsync(FlushPendingAutoSaveAsync);
+        await RunAndReportErrorsAsync(SaveActiveDocumentIfDirtyAsync);
         _fileWatcher?.Dispose();
         _closeConfirmed = true;
         Close();

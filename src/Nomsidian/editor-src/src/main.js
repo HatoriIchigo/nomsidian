@@ -1,9 +1,13 @@
-import { EditorView, keymap, Decoration, WidgetType, ViewPlugin } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { EditorView, keymap, Decoration, WidgetType, ViewPlugin, gutter, gutterLineClass, GutterMarker, lineNumbers } from "@codemirror/view";
+import { EditorState, Compartment, StateEffect, RangeSet } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { syntaxTree } from "@codemirror/language";
+import { diffLines } from "diff";
+import mermaid from "mermaid";
+
+mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
 
 function reportError(source, err) {
     if (window.chrome && window.chrome.webview) {
@@ -69,6 +73,7 @@ class TaskCheckboxWidget extends WidgetType {
 }
 
 // ---- テーブルの行/セルを構文木から取り出す（生テキストの手動パースより位置が正確） ----
+// 各行はソースの実際の行(from/to)に対応させ、行番号ガターと1対1になるようにする。
 function getTableRows(tableNode, state) {
     const rows = [];
     let rowNode = tableNode.node.firstChild;
@@ -86,11 +91,24 @@ function getTableRows(tableNode, state) {
                 }
                 cellNode = cellNode.nextSibling;
             }
-            rows.push({ isHeader: rowNode.type.name === "TableHeader", cells });
+            const line = state.doc.lineAt(rowNode.from);
+            rows.push({ isHeader: rowNode.type.name === "TableHeader", cells, lineFrom: line.from, lineTo: line.to });
         }
         rowNode = rowNode.nextSibling;
     }
     return rows;
+}
+
+// ---- 区切り行 "| --- | --- |" の行を構文木から取り出す ----
+function getTableDelimiterLine(tableNode, state) {
+    let child = tableNode.node.firstChild;
+    while (child) {
+        if (child.type.name === "TableDelimiter") {
+            return state.doc.lineAt(child.from);
+        }
+        child = child.nextSibling;
+    }
+    return null;
 }
 
 // ---- 区切り行 "| --- | :--: |" からカラムの寄せを読み取る ----
@@ -109,57 +127,123 @@ function parseTableAlignment(lineText) {
     });
 }
 
-// ---- Widget: パイプ記法のテーブルを実際の <table> に差し替える ----
-class TableWidget extends WidgetType {
-    constructor(rows, align) {
+// ---- セルのテキスト幅をCanvasで実測する(ch単位の概算だと太字ヘッダーとボディで
+// 幅がずれてしまうため、両方に同じpx値を使えるようにする) ----
+const TABLE_CELL_FONT = "700 15px 'Segoe UI', 'Yu Gothic UI', sans-serif";
+const TABLE_CELL_PADDING_PX = 28; // .cm-nomu-table-cell の左右padding(24px) + border分の余裕
+let tableMeasureContext = null;
+
+function measureTextWidth(text) {
+    if (!tableMeasureContext) {
+        tableMeasureContext = document.createElement("canvas").getContext("2d");
+        tableMeasureContext.font = TABLE_CELL_FONT;
+    }
+    return tableMeasureContext.measureText(text).width;
+}
+
+function computeColumnTemplate(rows) {
+    const columnCount = rows.length > 0 ? rows[0].cells.length : 0;
+    const widths = new Array(columnCount).fill(24);
+    for (const row of rows) {
+        row.cells.forEach((cell, i) => {
+            if (i < columnCount) {
+                widths[i] = Math.max(widths[i], measureTextWidth(cell.text) + TABLE_CELL_PADDING_PX);
+            }
+        });
+    }
+    return widths.map((w) => `${Math.ceil(w)}px`).join(" ");
+}
+
+// ---- Widget: テーブルの1行を実際のソース行に対応させて描画する ----
+// (複数行をまとめて1つのWidgetで描画すると行番号ガターとずれてしまうため、行ごとに分けている)
+class TableRowWidget extends WidgetType {
+    constructor(row, align, gridTemplateColumns) {
         super();
-        this.rows = rows;
+        this.row = row;
         this.align = align;
+        this.gridTemplateColumns = gridTemplateColumns;
     }
     eq(other) {
-        if (other.rows.length !== this.rows.length) return false;
-        for (let i = 0; i < this.rows.length; i++) {
-            const a = this.rows[i].cells;
-            const b = other.rows[i].cells;
-            if (a.length !== b.length) return false;
-            for (let j = 0; j < a.length; j++) {
-                if (a[j].text !== b[j].text) return false;
-            }
+        if (other.gridTemplateColumns !== this.gridTemplateColumns) return false;
+        if (other.row.isHeader !== this.row.isHeader) return false;
+        const a = this.row.cells;
+        const b = other.row.cells;
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            if (a[i].text !== b[i].text) return false;
         }
         return true;
     }
-    get estimatedHeight() {
-        return this.rows.length * 31 + 8;
+    toDOM(view) {
+        const rowEl = document.createElement("div");
+        rowEl.className = this.row.isHeader
+            ? "cm-nomu-table-row cm-nomu-table-row-header"
+            : "cm-nomu-table-row";
+        rowEl.style.gridTemplateColumns = this.gridTemplateColumns;
+
+        this.row.cells.forEach((cell, i) => {
+            const cellEl = document.createElement("div");
+            cellEl.className = "cm-nomu-table-cell";
+            cellEl.textContent = cell.text;
+            if (this.align[i]) {
+                cellEl.style.textAlign = this.align[i];
+            }
+            cellEl.addEventListener("mousedown", (e) => {
+                e.preventDefault();
+                view.dispatch({ selection: { anchor: cell.from }, scrollIntoView: true });
+                view.focus();
+            });
+            rowEl.appendChild(cellEl);
+        });
+
+        return rowEl;
+    }
+    ignoreEvent() {
+        return false;
+    }
+}
+
+// ---- Widget: ```mermaid コードブロックを実際の図(SVG)に差し替える ----
+let mermaidRenderSeq = 0;
+const mermaidCache = new Map();
+
+class MermaidWidget extends WidgetType {
+    constructor(source, pos) {
+        super();
+        this.source = source;
+        this.pos = pos;
+    }
+    eq(other) {
+        return other.source === this.source;
     }
     toDOM(view) {
         const wrapper = document.createElement("div");
-        wrapper.className = "cm-nomu-table-wrap";
-        const table = document.createElement("table");
-        table.className = "cm-nomu-table";
-        const thead = document.createElement("thead");
-        const tbody = document.createElement("tbody");
-
-        this.rows.forEach((row) => {
-            const tr = document.createElement("tr");
-            row.cells.forEach((cell, i) => {
-                const el = document.createElement(row.isHeader ? "th" : "td");
-                el.textContent = cell.text;
-                if (this.align[i]) {
-                    el.style.textAlign = this.align[i];
-                }
-                el.addEventListener("mousedown", (e) => {
-                    e.preventDefault();
-                    view.dispatch({ selection: { anchor: cell.from }, scrollIntoView: true });
-                    view.focus();
-                });
-                tr.appendChild(el);
-            });
-            (row.isHeader ? thead : tbody).appendChild(tr);
+        wrapper.className = "cm-nomu-mermaid";
+        wrapper.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            view.dispatch({ selection: { anchor: this.pos }, scrollIntoView: true });
+            view.focus();
         });
 
-        table.appendChild(thead);
-        table.appendChild(tbody);
-        wrapper.appendChild(table);
+        const cached = mermaidCache.get(this.source);
+        if (cached) {
+            wrapper.innerHTML = cached;
+        } else {
+            wrapper.textContent = "図を描画中...";
+            const id = `nomu-mermaid-${mermaidRenderSeq++}`;
+            mermaid
+                .render(id, this.source)
+                .then(({ svg }) => {
+                    mermaidCache.set(this.source, svg);
+                    wrapper.innerHTML = svg;
+                    view.requestMeasure();
+                })
+                .catch((err) => {
+                    wrapper.className = "cm-nomu-mermaid cm-nomu-mermaid-error";
+                    wrapper.textContent = `Mermaid 構文エラー: ${err && err.message ? err.message : err}`;
+                    view.requestMeasure();
+                });
+        }
         return wrapper;
     }
     ignoreEvent() {
@@ -181,8 +265,18 @@ function headingLevel(name) {
 }
 
 // ---- ライブプレビュー装飾 ----
+// ---- テーブル/mermaidの非表示行では行番号ガターも一緒に隠す ----
+class HiddenGutterMarker extends GutterMarker {
+    constructor() {
+        super();
+        this.elementClass = "cm-nomu-gutter-hidden";
+    }
+}
+const hiddenGutterLineMarker = new HiddenGutterMarker();
+
 function buildDecorations(view) {
     const decos = [];
+    const hiddenGutterLines = [];
     const state = view.state;
 
     for (const { from, to } of view.visibleRanges) {
@@ -194,24 +288,24 @@ function buildDecorations(view) {
 
                 if (name === "Table") {
                     if (!selectionOverlaps(state, node.from, node.to)) {
-                        const firstLine = state.doc.lineAt(node.from);
-                        const lastLine = state.doc.lineAt(node.to);
                         const rows = getTableRows(node, state);
-                        const align =
-                            lastLine.number > firstLine.number
-                                ? parseTableAlignment(state.doc.line(firstLine.number + 1).text)
-                                : [];
+                        const delimiterLine = getTableDelimiterLine(node, state);
+                        const align = delimiterLine ? parseTableAlignment(delimiterLine.text) : [];
+                        const gridTemplateColumns = computeColumnTemplate(rows);
 
-                        // block:true で複数行を一括置換すると CodeMirror の内部高さ計算(heightmap)が
-                        // 壊れて描画不能になる不具合を確認したため、1行ずつの安全な置換/非表示を積み重ねる。
-                        // 先頭行だけを実際の <table> に差し替え、残りの行は個別に非表示にする。
-                        decos.push(
-                            Decoration.replace({ widget: new TableWidget(rows, align) }).range(firstLine.from, firstLine.to)
-                        );
-                        for (let ln = firstLine.number + 1; ln <= lastLine.number; ln++) {
-                            const line = state.doc.line(ln);
-                            decos.push(Decoration.line({ class: "cm-nomu-table-hidden-line" }).range(line.from));
-                            decos.push(Decoration.replace({}).range(line.from, line.to));
+                        // 行ごとに実際のソース行へ1つずつWidgetを対応させる。1つの巨大なWidgetに
+                        // まとめると行番号ガターと表示がずれてしまうため、あえて行単位にしている。
+                        for (const row of rows) {
+                            decos.push(
+                                Decoration.replace({
+                                    widget: new TableRowWidget(row, align, gridTemplateColumns),
+                                }).range(row.lineFrom, row.lineTo)
+                            );
+                        }
+                        if (delimiterLine) {
+                            decos.push(Decoration.replace({}).range(delimiterLine.from, delimiterLine.to));
+                            decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(delimiterLine.from));
+                            hiddenGutterLines.push(hiddenGutterLineMarker.range(delimiterLine.from));
                         }
                     }
                     return false;
@@ -265,6 +359,38 @@ function buildDecorations(view) {
                     return;
                 }
 
+                if (name === "FencedCode") {
+                    const fenceNode = node.node;
+                    let infoText = "";
+                    let codeFrom = -1;
+                    let codeTo = -1;
+                    for (let child = fenceNode.firstChild; child; child = child.nextSibling) {
+                        if (child.type.name === "CodeInfo") {
+                            infoText = state.doc.sliceString(child.from, child.to).trim();
+                        } else if (child.type.name === "CodeText") {
+                            if (codeFrom === -1) codeFrom = child.from;
+                            codeTo = child.to;
+                        }
+                    }
+
+                    if (infoText.toLowerCase() === "mermaid" && !selectionOverlaps(state, node.from, node.to)) {
+                        const source = codeFrom === -1 ? "" : state.doc.sliceString(codeFrom, codeTo);
+                        const firstLine = state.doc.lineAt(node.from);
+                        const lastLine = state.doc.lineAt(node.to);
+
+                        decos.push(
+                            Decoration.replace({ widget: new MermaidWidget(source, firstLine.from) }).range(firstLine.from, firstLine.to)
+                        );
+                        for (let ln = firstLine.number + 1; ln <= lastLine.number; ln++) {
+                            const line = state.doc.line(ln);
+                            decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(line.from));
+                            decos.push(Decoration.replace({}).range(line.from, line.to));
+                            hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
+                        }
+                        return false;
+                    }
+                }
+
                 if (name === "FencedCode" || name === "CodeBlock") {
                     const startLine = state.doc.lineAt(node.from).number;
                     const endLine = state.doc.lineAt(node.to).number;
@@ -297,7 +423,8 @@ function buildDecorations(view) {
     }
 
     decos.sort((a, b) => a.from - b.from || a.to - b.to);
-    return Decoration.set(decos, true);
+    hiddenGutterLines.sort((a, b) => a.from - b.from);
+    return { decorations: Decoration.set(decos, true), gutterHidden: RangeSet.of(hiddenGutterLines) };
 }
 
 function safeBuildDecorations(view) {
@@ -305,18 +432,18 @@ function safeBuildDecorations(view) {
         return buildDecorations(view);
     } catch (err) {
         reportError("buildDecorations", err);
-        return Decoration.none;
+        return { decorations: Decoration.none, gutterHidden: RangeSet.empty };
     }
 }
 
 const livePreviewPlugin = ViewPlugin.fromClass(
     class {
         constructor(view) {
-            this.decorations = safeBuildDecorations(view);
+            this.decorations = safeBuildDecorations(view).decorations;
         }
         update(update) {
             if (update.docChanged || update.selectionSet || update.viewportChanged) {
-                this.decorations = safeBuildDecorations(update.view);
+                this.decorations = safeBuildDecorations(update.view).decorations;
             }
         }
     },
@@ -324,6 +451,17 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         decorations: (v) => v.decorations,
     }
 );
+
+// テーブル/mermaidの非表示行では行番号ガターの表示も一緒に隠す（メイン装飾とは別に、
+// ドキュメント全体を対象として state から直接計算する）。
+const hiddenGutterLinesField = gutterLineClass.compute(["doc", "selection"], (state) => {
+    try {
+        return buildDecorations({ state, visibleRanges: [{ from: 0, to: state.doc.length }] }).gutterHidden;
+    } catch (err) {
+        reportError("hiddenGutterLinesField", err);
+        return RangeSet.empty;
+    }
+});
 
 const nomuTheme = EditorView.theme(
     {
@@ -345,6 +483,36 @@ const nomuTheme = EditorView.theme(
             backgroundColor: "#1e1e1e",
             color: "#5a5a5a",
             border: "none",
+        },
+        ".cm-nomu-git-gutter": {
+            width: "6px",
+            minWidth: "6px",
+        },
+        ".cm-nomu-git-marker": {
+            width: "3px",
+            height: "100%",
+            marginLeft: "1px",
+        },
+        ".cm-nomu-git-add": {
+            backgroundColor: "#4caf50",
+        },
+        ".cm-nomu-git-modify": {
+            backgroundColor: "#4a90d9",
+        },
+        ".cm-nomu-git-delete-before": {
+            backgroundColor: "transparent",
+            position: "relative",
+        },
+        ".cm-nomu-git-delete-before::before": {
+            content: "''",
+            position: "absolute",
+            top: "0",
+            left: "1px",
+            width: "0",
+            height: "0",
+            borderStyle: "solid",
+            borderWidth: "0 0 5px 5px",
+            borderColor: "transparent transparent #e06c75 transparent",
         },
         "&.cm-focused .cm-cursor": {
             borderLeftColor: "#dcddde",
@@ -396,28 +564,59 @@ const nomuTheme = EditorView.theme(
             marginRight: "0.4em",
             verticalAlign: "middle",
         },
-        ".cm-nomu-table-wrap": {
-            margin: "0.5em 0",
+        ".cm-widgetBuffer": {
+            height: "0",
         },
-        ".cm-nomu-table": {
-            borderCollapse: "collapse",
-        },
-        ".cm-nomu-table th, .cm-nomu-table td": {
+        ".cm-nomu-table-row": {
+            display: "inline-grid",
+            verticalAlign: "top",
             border: "1px solid #3a3a3a",
-            padding: "6px 12px",
-            cursor: "text",
+            borderTop: "none",
+            backgroundColor: "#242424",
         },
-        ".cm-nomu-table th": {
+        ".cm-nomu-table-row-header": {
+            borderTop: "1px solid #3a3a3a",
             backgroundColor: "#2a2a2a",
             color: "#ffffff",
             fontWeight: "700",
         },
-        ".cm-nomu-table td": {
-            backgroundColor: "#242424",
+        ".cm-nomu-table-cell": {
+            padding: "3px 12px",
+            borderRight: "1px solid #3a3a3a",
+            cursor: "text",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
         },
-        ".cm-nomu-table-hidden-line": {
+        ".cm-nomu-table-cell:last-child": {
+            borderRight: "none",
+        },
+        ".cm-nomu-block-hidden-line": {
             fontSize: "1px",
             lineHeight: "1px",
+        },
+        ".cm-nomu-gutter-hidden": {
+            fontSize: "1px",
+            lineHeight: "1px",
+            opacity: "0",
+        },
+        ".cm-nomu-mermaid": {
+            margin: "0.5em 0",
+            padding: "12px",
+            backgroundColor: "#242424",
+            borderRadius: "6px",
+            display: "flex",
+            justifyContent: "center",
+            cursor: "text",
+        },
+        ".cm-nomu-mermaid svg": {
+            maxWidth: "100%",
+        },
+        ".cm-nomu-mermaid-error": {
+            color: "#e06c75",
+            fontFamily: "Consolas, 'Cascadia Code', monospace",
+            justifyContent: "flex-start",
+            whiteSpace: "pre-wrap",
         },
     },
     { dark: true }
@@ -437,14 +636,131 @@ function notifyHostChanged() {
     }, 150);
 }
 
-function createEditorState(doc) {
+function requestSave() {
+    if (changeCallbackTimer) {
+        clearTimeout(changeCallbackTimer);
+        changeCallbackTimer = null;
+    }
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(
+            JSON.stringify({ type: "save", text: view.state.doc.toString() })
+        );
+    }
+}
+
+const saveKeymap = keymap.of([
+    {
+        key: "Mod-s",
+        run: () => {
+            requestSave();
+            return true;
+        },
+        preventDefault: true,
+    },
+]);
+
+// ---- git gutter: 直近コミット(HEAD)との行単位diffをガターに表示 ----
+const setGitBaseEffect = StateEffect.define();
+let gitBaseText = null;
+
+function computeGitMarkers(state) {
+    const markers = new Map();
+    const currentText = state.doc.toString();
+    if (gitBaseText == null || gitBaseText === currentText) {
+        return markers;
+    }
+
+    const totalLines = state.doc.lines;
+    const hunks = diffLines(gitBaseText, currentText);
+    let line = 1;
+    for (let i = 0; i < hunks.length; i++) {
+        const hunk = hunks[i];
+        if (hunk.added) {
+            const type = i > 0 && hunks[i - 1].removed ? "modify" : "add";
+            for (let n = 0; n < hunk.count; n++) {
+                markers.set(line, type);
+                line++;
+            }
+        } else if (hunk.removed) {
+            const next = hunks[i + 1];
+            if (!(next && next.added)) {
+                markers.set(Math.min(line, totalLines), "delete-before");
+            }
+        } else {
+            line += hunk.count;
+        }
+    }
+    return markers;
+}
+
+class GitMarkerElement extends GutterMarker {
+    constructor(type) {
+        super();
+        this.type = type;
+    }
+    eq(other) {
+        return other.type === this.type;
+    }
+    toDOM() {
+        const el = document.createElement("div");
+        el.className = `cm-nomu-git-marker cm-nomu-git-${this.type}`;
+        return el;
+    }
+}
+
+const gitGutterPlugin = ViewPlugin.fromClass(
+    class {
+        constructor(view) {
+            this.markers = computeGitMarkers(view.state);
+        }
+        update(update) {
+            const baseChanged = update.transactions.some((tr) =>
+                tr.effects.some((e) => e.is(setGitBaseEffect))
+            );
+            if (update.docChanged || baseChanged) {
+                this.markers = computeGitMarkers(update.state);
+            }
+        }
+    }
+);
+
+const gitGutterExtension = gutter({
+    class: "cm-nomu-git-gutter",
+    lineMarker(view, line) {
+        const plugin = view.plugin(gitGutterPlugin);
+        if (!plugin) return null;
+        const lineNumber = view.state.doc.lineAt(line.from).number;
+        const type = plugin.markers.get(lineNumber);
+        return type ? new GitMarkerElement(type) : null;
+    },
+    lineMarkerChange: (update) =>
+        update.docChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(setGitBaseEffect))),
+});
+
+const modeCompartment = new Compartment();
+
+const plainTextTheme = EditorView.theme({
+    ".cm-content": {
+        fontFamily: "Consolas, 'Cascadia Code', monospace",
+    },
+});
+
+function modeExtensions(isMarkdown) {
+    return isMarkdown ? [markdown({ extensions: [GFM] }), livePreviewPlugin] : [plainTextTheme];
+}
+
+function createEditorState(doc, isMarkdown) {
     return EditorState.create({
         doc,
         extensions: [
             history(),
+            saveKeymap,
             keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-            markdown({ extensions: [GFM] }),
-            livePreviewPlugin,
+            modeCompartment.of(modeExtensions(isMarkdown)),
+            gitGutterExtension,
+            gitGutterPlugin,
+            lineNumbers(),
+            hiddenGutterLinesField,
             nomuTheme,
             EditorView.lineWrapping,
             EditorView.updateListener.of((update) => {
@@ -458,20 +774,27 @@ function createEditorState(doc) {
 
 window.__nomuInit = function () {
     view = new EditorView({
-        state: createEditorState(""),
+        state: createEditorState("", true),
         parent: document.getElementById("editor"),
     });
 };
 
-window.__nomuSetContent = function (text) {
+window.__nomuSetContent = function (text, isMarkdown) {
+    gitBaseText = null;
     view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: text },
         selection: { anchor: 0 },
+        effects: [modeCompartment.reconfigure(modeExtensions(isMarkdown)), setGitBaseEffect.of(null)],
     });
 };
 
 window.__nomuGetContent = function () {
     return view.state.doc.toString();
+};
+
+window.__nomuSetGitBase = function (text) {
+    gitBaseText = text;
+    view.dispatch({ effects: setGitBaseEffect.of(text) });
 };
 
 window.__nomuInit();

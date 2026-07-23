@@ -16,6 +16,12 @@
         FontFamily="Segoe UI"
         StateChanged="MainWindow_OnStateChanged"
         Closing="MainWindow_OnClosing">
+    <Window.InputBindings>
+        <KeyBinding Key="S" Modifiers="Control" Command="ApplicationCommands.Save" />
+    </Window.InputBindings>
+    <Window.CommandBindings>
+        <CommandBinding Command="ApplicationCommands.Save" Executed="SaveCommand_OnExecuted" CanExecute="SaveCommand_OnCanExecute" />
+    </Window.CommandBindings>
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="36" GlassFrameThickness="0" ResizeBorderThickness="6"
                              CornerRadius="0" UseAeroCaptionButtons="True" />
@@ -32,7 +38,7 @@
         <SolidColorBrush x:Key="AccentMutedBrush" Color="#4a3f8f" />
         <SolidColorBrush x:Key="HoverBrush" Color="#2a2a30" />
 
-        <HierarchicalDataTemplate DataType="{x:Type services:MarkdownFileNode}" ItemsSource="{Binding Children}">
+        <HierarchicalDataTemplate DataType="{x:Type services:FileNode}" ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal" Margin="0,3">
                 <TextBlock Text="{Binding IsDirectory, Converter={x:Static local:BoolToGlyphConverter.Instance}}"
                            FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
@@ -52,7 +58,7 @@
             </StackPanel>
         </HierarchicalDataTemplate>
 
-        <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type services:MarkdownFileNode}">
+        <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type services:FileNode}">
             <StackPanel Orientation="Horizontal" Margin="0,3">
                 <TextBlock Text="&#128196;" FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
                 <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />

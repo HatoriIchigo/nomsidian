@@ -27,3 +27,15 @@ Console.WriteLine("Hello, nomsidian!");
 | B | 2 |
 
 > 引用テキストのテストです。
+
+## Mermaid
+
+```mermaid
+graph TD
+  A[開始] --> B{ログイン済み?}
+  B -->|Yes| C[ダッシュボード表示]
+  B -->|No| D[ログイン画面へ]
+  D --> E[ログイン処理]
+  E --> C
+```
+
