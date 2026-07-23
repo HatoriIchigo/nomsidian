@@ -30,19 +30,26 @@ C# (.NET) で実装し、Windows ローカル環境で動作するデスクト�
 | `nomu .` | カレントディレクトリを開く |
 | `nomu <dir>` | 指定したディレクトリを開く（相対パス／絶対パス両対応） |
 | `nomu --version` | バージョン番号を標準出力に表示して終了する（GUIは起動しない） |
+| `nomu --update` | ソースから最新版を取得・再ビルドして自身を更新する（GUIは起動しない）。詳細は「自己更新」節を参照 |
 | `nomu`（引数なし） | 使い方を表示するか、あるいは直近に開いたディレクトリを開く（要検討・v1では前者を採用） |
+
+内部モード（ユーザ非公開）:
+
+- `nomu --apply-update ...` … `--update` が publish した新バイナリから起動され、インストール先の実行体を置換する
+- `nomu --health` … ランタイムが正常起動できれば 0 を返す（自己更新のロールバック判定に使う）
 
 引数解析の方針:
 
 - 第1引数がディレクトリパスとして存在しない場合、またはディレクトリでない場合はエラーメッセージを表示して終了する（GUIは起動しない）
-- `--version` は他の引数より優先し、指定があれば即座にバージョンを表示して終了する
+- `--version` / `--update` / `--apply-update` / `--health` は他の引数より優先し、指定があれば GUI を起動せず処理して終了する
 
 ## 動作環境
 
 - OS: Windows 10/11
 - ランタイム: .NET 10（このマシンにインストール済みの SDK/ランタイムに合わせる。将来 .NET 8 LTS 環境で動かす場合は `net8.0-windows` に変更する）
-- 配布形態: ローカル実行の自己完結型デスクトップアプリ（ネットワーク通信なし）
-- ビルド時のみ Node.js（CodeMirror6 エディタ本体を esbuild でバンドルするため）。実行時に Node.js は不要
+- 配布形態: ローカル実行の自己完結型デスクトップアプリ。通常動作ではネットワーク通信を行わない
+- 例外として `nomu --update`（自己更新）実行時のみ GitHub からソースを取得する。更新は明示コマンドでのみ発動し、常駐チェックや自動送信は行わない
+- ビルド時のみ Node.js（CodeMirror6 エディタ本体を esbuild でバンドルするため）。通常の実行時に Node.js は不要（`--update` 時のみ、editor を再ビルドするため git / .NET SDK / Node.js を要求する）
 
 ## 技術スタック
 
@@ -177,6 +184,38 @@ nomsidian/
 ```
 
 `Nomsidian.csproj` の `AssemblyName` を `nomu` にしているため、ビルド成果物は `nomu.exe` になる。`nomu` というコマンド名で使うには、出力先（`bin/Debug(or Release)/net10.0-windows/`）をPATHに追加するか、任意のPATH配下に `nomu.exe` をコピー／配置する。
+
+## 自己更新（`nomu --update`）
+
+ai-harness-main の SelfUpdater を参考にした「ソース再ビルド型」の自己更新。稼働中の実行ファイルは自分自身を上書きできない（Windows はロック）ため、**新バイナリ自身を applier にする 2 段構え**で置換する。実装は `src/Nomsidian/Install/SelfUpdater.cs`、CLI 分岐は `Program.cs`。
+
+### 前提
+
+`--update` 実行環境に `git` / `.NET SDK`（`dotnet`）が必要。`npm`（Node.js）があれば editor バンドルを再ビルドし、無ければリポジトリ追跡済みの `Assets/webui` をそのまま使う。単一ファイル発行された `nomu.exe` から実行している必要がある（`dotnet <dll>` 経由は置換対象を特定できずスキップ）。
+
+### 手順
+
+1. **`--update`（稼働中の実行体）**
+   1. `git` / `dotnet` の存在と、自身が単一ファイル実行体であることを確認する
+   2. リポジトリを一時ディレクトリへ `git clone`（shallow）する
+   3. clone 済み `HEAD` の sha と現行バイナリに埋め込まれた sha を比較し、一致すれば「既に最新」として終了する
+   4. `npm` があれば `editor-src` を `npm ci` + esbuild で再バンドルし `Assets/webui` を更新する
+   5. `dotnet publish -c Release -r <rid> --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true` で単一ファイルを一時ディレクトリへ発行する（`SourceRevisionId` に sha を埋め込む）
+   6. 発行した新バイナリを `--health` で起動検証する
+   7. 新バイナリを `--apply-update` モードで detached 起動し、自身は即終了して実行体ロックを解放する
+2. **`--apply-update`（一時ディレクトリの新バイナリ）**
+   1. 旧 `--update` プロセスの終了を待つ
+   2. インストール先の実行体を `.bak` へ退避する
+   3. 新バイナリで上書きする（ロック解放前は失敗し得るためリトライ）
+   4. 置換後に `--health` で起動検証し、失敗したら `.bak` からロールバックする
+   5. 一時ディレクトリを掃除する。結果は実行体隣の `update.log` に記録する
+
+### 設計上のポイント
+
+- **Content の同梱**: `-p:IncludeAllContentForSelfExtract=true` で `Assets/webui`（editor バンドル）も単一 exe に取り込むため、**exe 1 個の置換で更新が完結**する。実行時は self-extract 先が `AppContext.BaseDirectory` になるので `MainWindow` の webui 参照はそのまま動く
+- **バージョン識別**: 発行時に `-p:SourceRevisionId=<sha>` を埋め、`nomu --version` は `0.1.0+<sha 先頭7桁>` を表示する。これを「既に最新」判定にも使う
+- **GUI アプリゆえ daemon 再起動は不要**: ai-harness-main の daemon 停止／再起動処理は移植していない
+- **トリガーは明示コマンドのみ**: 起動時の自動チェックは行わない（設計方針「通常動作ではネットワーク通信なし」を維持するため）
 
 ## 今後の拡張（v1以降の候補）
 
