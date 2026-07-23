@@ -6,6 +6,7 @@ import { GFM } from "@lezer/markdown";
 import { syntaxTree } from "@codemirror/language";
 import { diffLines } from "diff";
 import mermaid from "mermaid";
+import { vim } from "@replit/codemirror-vim";
 
 mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
 
@@ -947,6 +948,10 @@ function createEditorState(doc, isMarkdown) {
     return EditorState.create({
         doc,
         extensions: [
+            // vim() は defaultKeymap よりノーマルモードの捕捉を優先させるため必ず先頭に置く
+            // (nomu.lua の config.editor.vim_mode で有効化。C#側が __nomuInit() 実行前に
+            // window.__nomuVimMode をセットしておく)
+            ...(window.__nomuVimMode ? [vim()] : []),
             history(),
             saveKeymap,
             keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),

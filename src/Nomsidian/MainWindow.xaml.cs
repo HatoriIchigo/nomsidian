@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
+using Nomsidian.Config;
 using Nomsidian.Services;
 
 namespace Nomsidian;
@@ -24,6 +25,7 @@ public partial class MainWindow : Window
     private static readonly TimeSpan OwnWriteIgnoreWindow = TimeSpan.FromMilliseconds(750);
 
     private readonly string _rootDirectory;
+    private readonly NomuConfig _config;
     private readonly TaskCompletionSource _editorReadyTcs = new();
     private readonly DispatcherTimer _externalChangeTimer;
     private readonly List<FileNode> _allFiles = new();
@@ -35,17 +37,48 @@ public partial class MainWindow : Window
     private bool _isSwitchingTabProgrammatically;
     private double _lastSidebarWidth = 240;
 
-    public MainWindow(string rootDirectory)
+    public MainWindow(string rootDirectory, NomuConfig config)
     {
         InitializeComponent();
+        ApplyConfig(config);
 
         _rootDirectory = rootDirectory;
+        _config = config;
         _externalChangeTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
         _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
         TabStrip.ItemsSource = _openDocuments;
         SourceInitialized += (_, _) => TryEnableDarkTitleBar();
         Loaded += async (_, _) => await RunAndReportErrorsAsync(InitializeEditorAsync);
         ReloadFileTree();
+    }
+
+    /// <summary>
+    /// nomu.lua で指定されたテーマ/フォントを適用する。XAML の各コントロールは
+    /// StaticResource でこれらのブラシインスタンスを直接参照しているため、
+    /// (キーの差し替えでなく) 既存ブラシの Color を書き換えることで反映される。
+    /// </summary>
+    private void ApplyConfig(NomuConfig config)
+    {
+        ApplyBrush("EditorBgBrush", config.Theme.EditorBg);
+        ApplyBrush("SidebarBgBrush", config.Theme.SidebarBg);
+        ApplyBrush("PanelBgBrush", config.Theme.PanelBg);
+        ApplyBrush("BorderBrush", config.Theme.Border);
+        ApplyBrush("TextBrush", config.Theme.Text);
+        ApplyBrush("MutedTextBrush", config.Theme.MutedText);
+        ApplyBrush("AccentBrush", config.Theme.Accent);
+        ApplyBrush("AccentMutedBrush", config.Theme.AccentMuted);
+        ApplyBrush("HoverBrush", config.Theme.Hover);
+
+        FontFamily = new FontFamily(config.Font.Family);
+        FontSize = config.Font.Size;
+    }
+
+    private void ApplyBrush(string resourceKey, string hexColor)
+    {
+        // 既存ブラシは WPF が自動 Freeze しており Color を直接書き換えられないため、
+        // DynamicResource 参照側から見えるようエントリ自体を新しいブラシに差し替える。
+        var color = (Color)ColorConverter.ConvertFromString(hexColor);
+        Resources[resourceKey] = new SolidColorBrush(color);
     }
 
     [DllImport("dwmapi.dll")]
@@ -133,6 +166,10 @@ public partial class MainWindow : Window
             VaultVirtualHostName, _rootDirectory, CoreWebView2HostResourceAccessKind.Allow);
 
         EditorView.CoreWebView2.WebMessageReceived += CoreWebView2_OnWebMessageReceived;
+
+        // bundle.js(__nomuInit)実行前に読める必要があるため、ナビゲーション前にスクリプトとして注入する。
+        var vimModeFlag = _config.Editor.VimMode ? "true" : "false";
+        await EditorView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync($"window.__nomuVimMode = {vimModeFlag};");
 
         void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
         {

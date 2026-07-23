@@ -168,6 +168,9 @@ nomsidian/
 │       ├── App.cs                   # Application継承のみ（App.xamlは持たない）
 │       ├── MainWindow.xaml
 │       ├── MainWindow.xaml.cs
+│       ├── Config/
+│       │   ├── NomuConfig.cs        # 設定値のPOCO（テーマ/フォント）
+│       │   └── ConfigLoader.cs      # nomu.lua の読み込み（MoonSharp）
 │       ├── Services/
 │       │   ├── FileService.cs       # ファイル読み書き
 │       │   └── DirectoryService.cs  # ディレクトリ配下の.md一覧取得
@@ -217,10 +220,75 @@ ai-harness-main の SelfUpdater を参考にした「ソース再ビルド型」
 - **GUI アプリゆえ daemon 再起動は不要**: ai-harness-main の daemon 停止／再起動処理は移植していない
 - **トリガーは明示コマンドのみ**: 起動時の自動チェックは行わない（設計方針「通常動作ではネットワーク通信なし」を維持するため）
 
+## 設定ファイル（`nomu.lua`）
+
+WezTerm の `wezterm.lua` に倣い、設定ファイルを Lua スクリプトとして書く方式を採用する。実装は `src/Nomsidian/Config/`（`NomuConfig.cs` / `ConfigLoader.cs`）。
+
+### 採用ライブラリ
+
+**MoonSharp**（純C#実装のLuaインタプリタ）を使用する。NLua/KeraLua はネイティブ `lua5x.dll` を要求し、`nomu --update` の自己更新節にある「単一ファイル自己完結型 exe に全部同梱する」方針（`IncludeAllContentForSelfExtract`）と相性が悪いため不採用とした。
+
+### 探索順・書式
+
+1. 開いた vault 直下の `nomu.lua`
+2. なければ `%USERPROFILE%\.nomsidian\nomu.lua`
+3. どちらも無ければ全項目デフォルト値で起動する
+
+スクリプトは `wezterm.lua` と同じ書き味で、末尾で設定テーブルを `return` する。
+
+```lua
+local config = {}
+
+config.theme = {
+    editor_bg = "#12141a",
+    sidebar_bg = "#0e1016",
+    panel_bg = "#181b22",
+    border = "#2a2e3a",
+    text = "#e3e6ee",
+    muted_text = "#7d8494",
+    accent = "#57c7ff",
+    accent_muted = "#2c5570",
+    hover = "#232733",
+}
+
+config.font = {
+    family = "Yu Gothic UI",
+    size = 12,
+}
+
+return config
+```
+
+`sample/nomu.lua` に動作確認用の実例を置いている。
+
+### ホストAPI（グローバル `nomu` テーブル）
+
+MoonSharpの`Script`に注入する。現時点では以下のみ:
+
+- `nomu.version` — 表示バージョン文字列
+- `nomu.on(event, fn)` — 将来のイベントフック（ファイルを開いた時・保存前など）向けの器。**登録は受け付けるが現時点では発火しない**
+- `nomu.action` — 将来のキーバインド用アクション定数の器（現時点では空テーブル）
+
+これらはプラグイン機構（「今後の拡張」参照）への布石として型・シグネチャだけ先に用意してある。
+
+### サンドボックス
+
+`CoreModules.Preset_SoftSandbox` でスクリプトを実行し、`io`/`os` 系の危険なモジュールを外す。設定ファイルはローカルユーザ自身が書く前提だが、事故防止（コピペした設定に予期せぬファイル操作が紛れ込む等）のため制限している。
+
+### 反映範囲（v1）
+
+- **反映される**: WPFシェル側の配色（サイドバー・パネル・境界線・アクセント・タブ/選択ハイライト）とウィンドウ全体のフォント（`MainWindow.xaml`の対象ブラシは`DynamicResource`化し、`ApplyConfig`でリソースエントリを差し替える方式。WPFはリソース中の`Brush`を自動`Freeze`するため、既存ブラシの`Color`を直接書き換えるのではなく新しい`SolidColorBrush`でエントリごと置き換える必要があった）
+- **反映されない**: CodeMirror6エディタ本体（`editor-src/src/main.js`の`nomuTheme`）の配色はハードコードされたままで、`nomu.lua`のテーマとは独立している。エディタ側の動的テーマ同期は未実装（今後の拡張候補）
+
+### エラー時の挙動
+
+構文エラー・実行時エラーは`ConfigLoadException`として`Program.cs`まで伝播し、`MessageBox`でエラー内容を表示した上でデフォルト設定（全項目既定値）で起動を継続する（WezTermのエラーオーバーレイと同様の「壊れた設定でも起動は諦めない」思想）。
+
 ## 今後の拡張（v1以降の候補）
 
 - `[[WikiLink]]` 形式のファイル間リンクとバックリンク表示、グラフビュー
 - 複数ファイルのタブ表示・同時編集
 - ダーク／ライトテーマ切り替え
 - 数式表示（KaTeX/MathJax連携）
-- プラグイン機構
+- プラグイン機構（`nomu.on`/`nomu.action`の器を実処理に繋げる。イベント発火・アクション実行・キーバインド設定など）
+- CodeMirror6エディタ本体の配色を`nomu.lua`のテーマ設定と同期する（現状はWPFシェル側のみ反映）

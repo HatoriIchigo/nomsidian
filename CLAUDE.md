@@ -15,6 +15,7 @@ obsidianのようなMarkdwon Previewer。
 | パス | 概要 |
 | -- | -- |
 | docs/design.md | nomsidian 設計書 |
+| docs/settings.md | nomsidian lua設定ファイル 仕様書 |
 
 ## 応答原則
 

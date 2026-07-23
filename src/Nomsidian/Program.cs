@@ -1,6 +1,8 @@
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Windows;
+using Nomsidian.Config;
 using Nomsidian.Install;
 
 namespace Nomsidian;
@@ -51,15 +53,26 @@ public static class Program
             return 1;
         }
 
+        NomuConfig config;
+        try
+        {
+            config = ConfigLoader.Load(targetDirectory);
+        }
+        catch (ConfigLoadException ex)
+        {
+            MessageBox.Show(ex.Message, "nomsidian 設定エラー");
+            config = new NomuConfig();
+        }
+
         var app = new App();
-        return app.Run(new MainWindow(targetDirectory));
+        return app.Run(new MainWindow(targetDirectory, config));
     }
 
     /// <summary>
     /// 表示用バージョン。publish 時に <c>-p:SourceRevisionId=&lt;sha&gt;</c> が埋め込まれていれば
     /// <c>0.1.0+&lt;sha 先頭 7 桁&gt;</c> を返す（自己更新の「既に最新」判定にも使う）。無ければ数値版。
     /// </summary>
-    private static string DisplayVersion()
+    internal static string DisplayVersion()
     {
         var assembly = Assembly.GetExecutingAssembly();
         var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;

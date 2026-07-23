@@ -45,10 +45,10 @@
                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsDirectory}" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
                                     <Setter Property="FontWeight" Value="SemiBold" />
                                 </DataTrigger>
                             </Style.Triggers>
@@ -61,7 +61,7 @@
         <DataTemplate x:Key="SearchResultTemplate" DataType="{x:Type services:FileNode}">
             <StackPanel Orientation="Horizontal" Margin="0,3">
                 <TextBlock Text="&#128196;" FontFamily="Segoe UI Emoji" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
-                <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
             </StackPanel>
         </DataTemplate>
 
@@ -73,7 +73,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border Background="Transparent" Width="16" Height="16">
-                            <Path x:Name="Arrow" Data="M 0 0 L 6 4 L 0 8 Z" Fill="{StaticResource MutedTextBrush}"
+                            <Path x:Name="Arrow" Data="M 0 0 L 6 4 L 0 8 Z" Fill="{DynamicResource MutedTextBrush}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
                                 <Path.RenderTransform>
                                     <RotateTransform Angle="0" />
@@ -96,7 +96,7 @@
 
         <Style TargetType="TreeViewItem">
             <Setter Property="Padding" Value="2,0" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TreeViewItem">
@@ -123,10 +123,10 @@
                                 <Setter TargetName="Expander" Property="Visibility" Value="Hidden" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentMutedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -156,10 +156,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentMutedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -176,7 +176,7 @@
             <Setter Property="Width" Value="16" />
             <Setter Property="Height" Value="16" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
             <Setter Property="FontSize" Value="9" />
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Template">
@@ -187,7 +187,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -196,10 +196,10 @@
         </Style>
 
         <Style x:Key="SearchBoxStyle" TargetType="TextBox">
-            <Setter Property="Background" Value="{StaticResource PanelBgBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="8,6" />
             <Setter Property="FontSize" Value="12" />
@@ -217,7 +217,7 @@
 
         <!-- ==================== Menu ==================== -->
         <Style x:Key="TopMenuItemStyle" TargetType="MenuItem">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Padding" Value="10,6" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -228,7 +228,7 @@
                             </Border>
                             <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsSubmenuOpen}"
                                    AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
-                                <Border Background="{StaticResource PanelBgBrush}" BorderBrush="{StaticResource BorderBrush}"
+                                <Border Background="{DynamicResource PanelBgBrush}" BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1" CornerRadius="6" Padding="4" Margin="0,2,0,0">
                                     <Border.Effect>
                                         <DropShadowEffect BlurRadius="16" ShadowDepth="2" Opacity="0.4" Color="Black" />
@@ -239,7 +239,7 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -248,7 +248,7 @@
         </Style>
 
         <Style x:Key="SubMenuItemStyle" TargetType="MenuItem">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Padding" Value="10,7" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -262,13 +262,13 @@
                                 <ContentPresenter Grid.Column="0" ContentSource="Header" VerticalAlignment="Center"
                                                    RecognizesAccessKey="True" />
                                 <TextBlock Grid.Column="1" Text="{TemplateBinding InputGestureText}"
-                                           Foreground="{StaticResource MutedTextBrush}" Margin="24,0,0,0"
+                                           Foreground="{DynamicResource MutedTextBrush}" Margin="24,0,0,0"
                                            VerticalAlignment="Center" />
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentMutedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -277,24 +277,24 @@
         </Style>
 
         <Style TargetType="Separator">
-            <Setter Property="Background" Value="{StaticResource BorderBrush}" />
+            <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
             <Setter Property="Height" Value="1" />
             <Setter Property="Margin" Value="6,4" />
         </Style>
 
         <Style TargetType="Menu">
-            <Setter Property="Background" Value="{StaticResource PanelBgBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         </Style>
 
         <!-- ==================== StatusBar ==================== -->
         <Style TargetType="StatusBar">
-            <Setter Property="Background" Value="{StaticResource PanelBgBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="StatusBar">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{StaticResource BorderBrush}"
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="0,1,0,0" Padding="10,4">
                             <ItemsPresenter />
                         </Border>
@@ -376,7 +376,7 @@
             <Setter Property="Width" Value="44" />
             <Setter Property="Height" Value="36" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
             <Setter Property="Focusable" Value="False" />
             <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
             <Setter Property="Template">
@@ -387,7 +387,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -435,11 +435,11 @@
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <Border x:Name="AccentBar" Width="2" HorizontalAlignment="Left"
-                                    Background="{StaticResource AccentBrush}" Visibility="Collapsed" />
+                                    Background="{DynamicResource AccentBrush}" Visibility="Collapsed" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="AccentBar" Property="Visibility" Value="Visible" />
@@ -450,26 +450,26 @@
             </Setter>
         </Style>
     </Window.Resources>
-    <Border x:Name="RootBorder" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+    <Border x:Name="RootBorder" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
         <DockPanel>
-            <DockPanel x:Name="TitleBar" DockPanel.Dock="Top" Height="36" Background="{StaticResource PanelBgBrush}" LastChildFill="False">
+            <DockPanel x:Name="TitleBar" DockPanel.Dock="Top" Height="36" Background="{DynamicResource PanelBgBrush}" LastChildFill="False">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="6,0,0,0">
                     <Button x:Name="SidebarToggleButton" Style="{StaticResource IconButtonStyle}" Click="SidebarToggleButton_OnClick"
                             ToolTip="サイドバーの表示切り替え">
                         <Path Data="M0.5,0.5 L9.5,0.5 L9.5,9.5 L0.5,9.5 Z M3.5,0.5 L3.5,9.5"
-                              Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                              Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
                     </Button>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <Button x:Name="MinimizeButton" Style="{StaticResource CaptionButtonStyle}" Click="MinimizeButton_OnClick" ToolTip="最小化">
-                        <Path Data="M0,5 H10" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                        <Path Data="M0,5 H10" Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
                     </Button>
                     <Button x:Name="MaximizeRestoreButton" Style="{StaticResource CaptionButtonStyle}" Click="MaximizeRestoreButton_OnClick" ToolTip="最大化">
-                        <Path x:Name="MaximizeRestoreIcon" Data="M0.5,0.5 H9.5 V9.5 H0.5 Z" Stroke="{StaticResource MutedTextBrush}"
+                        <Path x:Name="MaximizeRestoreIcon" Data="M0.5,0.5 H9.5 V9.5 H0.5 Z" Stroke="{DynamicResource MutedTextBrush}"
                               StrokeThickness="1" Width="10" Height="10" Stretch="None" />
                     </Button>
                     <Button x:Name="CloseButton" Style="{StaticResource CloseButtonStyle}" Click="CloseButton_OnClick" ToolTip="閉じる">
-                        <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" Stroke="{StaticResource TextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
+                        <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" Width="10" Height="10" Stretch="None" />
                     </Button>
                 </StackPanel>
             </DockPanel>
@@ -488,30 +488,30 @@
                     <ColumnDefinition Width="*" MinWidth="300" />
                 </Grid.ColumnDefinitions>
 
-                <Border x:Name="ActivityBar" Grid.Column="0" Background="{StaticResource PanelBgBrush}"
-                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                <Border x:Name="ActivityBar" Grid.Column="0" Background="{DynamicResource PanelBgBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
                     <StackPanel Orientation="Vertical" Margin="0,6,0,0">
                         <ToggleButton x:Name="ExplorerToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
                                       Click="ExplorerToggleButton_OnClick" ToolTip="ファイル一覧" IsChecked="True">
                             <Path Data="M0.5,2.5 L3.5,2.5 L4.5,3.5 L9.5,3.5 L9.5,8.5 L0.5,8.5 Z"
-                                  Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.2" StrokeLineJoin="Round"
+                                  Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1.2" StrokeLineJoin="Round"
                                   Width="16" Height="16" Stretch="Uniform" />
                         </ToggleButton>
                         <ToggleButton x:Name="SearchToggleButton" Style="{StaticResource ActivityBarButtonStyle}"
                                       Click="SearchToggleButton_OnClick" ToolTip="検索">
                             <Canvas Width="16" Height="16">
                                 <Ellipse Canvas.Left="0" Canvas.Top="0" Width="11" Height="11"
-                                         Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.4" />
-                                <Line X1="9.8" Y1="9.8" X2="16" Y2="16" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.6" />
+                                         Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1.4" />
+                                <Line X1="9.8" Y1="9.8" X2="16" Y2="16" Stroke="{DynamicResource MutedTextBrush}" StrokeThickness="1.6" />
                             </Canvas>
                         </ToggleButton>
                     </StackPanel>
                 </Border>
 
-                <DockPanel x:Name="SidebarPanel" Grid.Column="1" Background="{StaticResource SidebarBgBrush}">
-                    <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                <DockPanel x:Name="SidebarPanel" Grid.Column="1" Background="{DynamicResource SidebarBgBrush}">
+                    <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
                         <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{StaticResource MutedTextBrush}" />
+                                   Foreground="{DynamicResource MutedTextBrush}" />
                     </Border>
                     <Grid>
                         <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged" />
@@ -525,12 +525,12 @@
                     </Grid>
                 </DockPanel>
 
-                <Border x:Name="SidebarSplitterBorder" Grid.Column="2" Background="{StaticResource BorderBrush}" />
+                <Border x:Name="SidebarSplitterBorder" Grid.Column="2" Background="{DynamicResource BorderBrush}" />
                 <GridSplitter x:Name="SidebarSplitter" Grid.Column="2" Width="1" HorizontalAlignment="Stretch" Background="Transparent" />
 
                 <DockPanel Grid.Column="3">
-                    <Border DockPanel.Dock="Top" Background="{StaticResource PanelBgBrush}"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBgBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
                         <ListBox x:Name="TabStrip" Style="{StaticResource TabStripStyle}"
                                  SelectionChanged="TabStrip_OnSelectionChanged">
                             <ListBox.ItemsPanel>
@@ -547,7 +547,7 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate DataType="{x:Type local:OpenDocument}">
                                     <StackPanel Orientation="Horizontal" Margin="10,5">
-                                        <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource TextBrush}"
+                                        <TextBlock Text="{Binding DisplayName}" Foreground="{DynamicResource TextBrush}"
                                                    FontSize="12" VerticalAlignment="Center" />
                                         <Button Content="&#10005;" Tag="{Binding}" Click="TabCloseButton_OnClick"
                                                 Style="{StaticResource TabCloseButtonStyle}" Margin="8,0,0,0" />
