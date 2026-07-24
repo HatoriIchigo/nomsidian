@@ -534,33 +534,40 @@ function buildDecorations(view) {
                         }
                     }
 
-                    if (infoText.toLowerCase() === "mermaid" && !selectionOverlaps(state, node.from, node.to)) {
-                        const source = codeFrom === -1 ? "" : state.doc.sliceString(codeFrom, codeTo);
-                        const firstLine = state.doc.lineAt(node.from);
-                        const lastLine = state.doc.lineAt(node.to);
+                    if (infoText.toLowerCase() === "mermaid") {
+                        if (!selectionOverlaps(state, node.from, node.to)) {
+                            const source = codeFrom === -1 ? "" : state.doc.sliceString(codeFrom, codeTo);
+                            const firstLine = state.doc.lineAt(node.from);
+                            const lastLine = state.doc.lineAt(node.to);
 
-                        decos.push(
-                            Decoration.replace({ widget: new MermaidWidget(source, firstLine.from) }).range(firstLine.from, firstLine.to)
-                        );
-                        for (let ln = firstLine.number + 1; ln <= lastLine.number; ln++) {
-                            const line = state.doc.line(ln);
-                            decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(line.from));
-                            // 空行(line.from === line.to)にDecoration.replace({})を使うと、CM6が
-                            // 「Invalid range for replacement decoration」を投げる(replace系decorationの
-                            // ゼロ幅rangeはwidget付きでない限り許可されないため)。隠す文字が無いので単純にスキップする。
-                            if (line.to > line.from) {
-                                decos.push(Decoration.replace({}).range(line.from, line.to));
+                            decos.push(
+                                Decoration.replace({ widget: new MermaidWidget(source, firstLine.from) }).range(firstLine.from, firstLine.to)
+                            );
+                            for (let ln = firstLine.number + 1; ln <= lastLine.number; ln++) {
+                                const line = state.doc.line(ln);
+                                decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(line.from));
+                                // 空行(line.from === line.to)にDecoration.replace({})を使うと、CM6が
+                                // 「Invalid range for replacement decoration」を投げる(replace系decorationの
+                                // ゼロ幅rangeはwidget付きでない限り許可されないため)。隠す文字が無いので単純にスキップする。
+                                if (line.to > line.from) {
+                                    decos.push(Decoration.replace({}).range(line.from, line.to));
+                                }
+                                hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
                             }
-                            hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
                         }
+                        // カーソルがブロック内にある間は、開始/終了フェンス行を個別に隠す通常コードブロックの
+                        // 処理(下記)には絶対に流さない。素通りさせると、カーソルが中身の行にあるだけで
+                        // (フェンス行自体には無いので)フェンスが片方ずつ消えてしまう不具合になる。
                         return false;
                     }
 
-                    // 通常のコードブロック: ```lang / ``` のフェンス行は、カーソルがその行にない時だけ隠す
-                    for (const mark of [openMark, closeMark]) {
-                        if (!mark) continue;
-                        const line = state.doc.lineAt(mark.from);
-                        if (!selectionOverlaps(state, line.from, line.to)) {
+                    // 通常のコードブロック: ```lang / ``` のフェンス行は、カーソルがブロック内(中身の行も含む)
+                    // に無い時だけ隠す。フェンス自身の行だけで判定すると、中身を編集している間はカーソルが
+                    // フェンス行に乗らず常に両方隠れてしまう。
+                    if (!selectionOverlaps(state, node.from, node.to)) {
+                        for (const mark of [openMark, closeMark]) {
+                            if (!mark) continue;
+                            const line = state.doc.lineAt(mark.from);
                             decos.push(Decoration.replace({}).range(line.from, line.to));
                             decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(line.from));
                             hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
