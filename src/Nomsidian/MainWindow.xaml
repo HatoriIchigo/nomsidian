@@ -632,7 +632,8 @@
                     </Border>
                     <Grid>
                         <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged"
-                                  ContextMenuOpening="FileTree_OnContextMenuOpening">
+                                  ContextMenuOpening="FileTree_OnContextMenuOpening"
+                                  PreviewMouseLeftButtonDown="FileTree_OnPreviewMouseLeftButtonDown">
                             <TreeView.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem x:Name="AddToFavoritesMenuItem" Header="お気に入りに追加"

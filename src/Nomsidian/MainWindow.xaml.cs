@@ -367,6 +367,26 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// タブを閉じた後もファイルツリーの選択状態は残ったままのため、閉じたタブと同じファイルを
+    /// 再度クリックしても選択に変化がなく SelectedItemChanged が発火しない。既に選択中のノードを
+    /// クリックした場合はここで直接開き直す。
+    /// </summary>
+    private void FileTree_OnPreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        while (source is not null and not System.Windows.Controls.TreeViewItem)
+        {
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        if (source is System.Windows.Controls.TreeViewItem { DataContext: FileNode { IsDirectory: false } node } &&
+            ReferenceEquals(FileTree.SelectedItem, node))
+        {
+            _ = RunAndReportErrorsAsync(() => OpenFileAsync(node.FullPath));
+        }
+    }
+
     private async Task OpenFileAsync(string path)
     {
         await _editorReadyTcs.Task;
