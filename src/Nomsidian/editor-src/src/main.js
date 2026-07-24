@@ -4,7 +4,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { syntaxTree, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { tags } from "@lezer/highlight";
+import { tags, highlightTree } from "@lezer/highlight";
 import { search, setSearchQuery, SearchQuery } from "@codemirror/search";
 import { diffLines } from "diff";
 import mermaid from "mermaid";
@@ -13,11 +13,20 @@ import { languageForFilename, languageForInfo } from "./languages.js";
 
 mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
 
+// buildDecorations等はドキュメント変更/選択変更のたびに再実行されるため、同一エラーがそのまま
+// 繰り返し発生するとMessageBox(モーダル)が連続表示されて操作不能になる。同じsource+messageの
+// 組み合わせは1回だけ報告する。
+const reportedErrorKeys = new Set();
 function reportError(source, err) {
+    const message = String(err && err.stack ? err.stack : err);
+    // dedupキーはメッセージ本文の1行目だけを使う(スタックトレースの行:列は同じ不具合でも
+    // 呼び出し経路によって微妙にずれることがあり、フルスタックだと同一エラーでも別扱いになってしまう)。
+    const key = `${source} ${String(err && err.message ? err.message : err).split("\n")[0]}`;
+    if (reportedErrorKeys.has(key)) return;
+    reportedErrorKeys.add(key);
+
     if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage(
-            JSON.stringify({ type: "error", source, message: String(err && err.stack ? err.stack : err) })
-        );
+        window.chrome.webview.postMessage(JSON.stringify({ type: "error", source, message }));
     }
 }
 window.addEventListener("error", (e) => reportError("window.onerror", e.error || e.message));
@@ -390,6 +399,7 @@ function buildDecorations(view) {
             from,
             to,
             enter: (node) => {
+              try {
                 const name = node.type.name;
 
                 if (name === "Table") {
@@ -535,7 +545,12 @@ function buildDecorations(view) {
                         for (let ln = firstLine.number + 1; ln <= lastLine.number; ln++) {
                             const line = state.doc.line(ln);
                             decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(line.from));
-                            decos.push(Decoration.replace({}).range(line.from, line.to));
+                            // 空行(line.from === line.to)にDecoration.replace({})を使うと、CM6が
+                            // 「Invalid range for replacement decoration」を投げる(replace系decorationの
+                            // ゼロ幅rangeはwidget付きでない限り許可されないため)。隠す文字が無いので単純にスキップする。
+                            if (line.to > line.from) {
+                                decos.push(Decoration.replace({}).range(line.from, line.to));
+                            }
                             hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
                         }
                         return false;
@@ -549,6 +564,25 @@ function buildDecorations(view) {
                             decos.push(Decoration.replace({}).range(line.from, line.to));
                             decos.push(Decoration.line({ class: "cm-nomu-block-hidden-line" }).range(line.from));
                             hiddenGutterLines.push(hiddenGutterLineMarker.range(line.from));
+                        }
+                    }
+
+                    // info文字列に対応する言語があれば、そのコード本文だけを個別にパースしてハイライトする。
+                    // lezer/markdownのcodeLanguages(parseMixed)機構は、mermaid等の複数行装飾のための
+                    // 独自range計算と衝突して「Invalid range for replacement decoration」を起こすため使わず、
+                    // ここで直接Decoration.markを組み立てる(languages.jsのlanguageForInfoを再利用)。
+                    if (codeFrom !== -1) {
+                        const lang = languageForInfo(infoText);
+                        if (lang) {
+                            try {
+                                const codeStr = state.doc.sliceString(codeFrom, codeTo);
+                                const tree = lang.parser.parse(codeStr);
+                                highlightTree(tree, nomuHighlightStyle, (from, to, classes) => {
+                                    decos.push(Decoration.mark({ class: classes }).range(codeFrom + from, codeFrom + to));
+                                });
+                            } catch (err) {
+                                reportError("codeBlockHighlight", err);
+                            }
                         }
                     }
                 }
@@ -580,6 +614,12 @@ function buildDecorations(view) {
                     decos.push(Decoration.replace({ widget: new TaskCheckboxWidget(checked, node.from) }).range(node.from, node.to));
                     return;
                 }
+              } catch (err) {
+                // 1ノードの装飾計算で例外が起きても文書全体の装飾(見出し・太字等)を巻き添えにしない。
+                // 無効なrange計算などの想定外ケースはこのノードだけ諦めて他のノードの処理を続ける。
+                reportError("buildDecorations:enter", err);
+                return false;
+              }
             },
         });
     }
@@ -975,7 +1015,7 @@ const nomuSyntaxHighlighting = syntaxHighlighting(nomuHighlightStyle);
 
 function modeExtensions(isMarkdown, filePath) {
     if (isMarkdown) {
-        return [markdown({ extensions: [GFM], codeLanguages: languageForInfo }), livePreviewPlugin];
+        return [markdown({ extensions: [GFM] }), livePreviewPlugin];
     }
 
     const lang = languageForFilename(filePath || "");
