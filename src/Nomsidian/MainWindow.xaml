@@ -239,6 +239,35 @@
             </Setter>
         </Style>
 
+        <Style x:Key="SearchScopeToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="10" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="#101010" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="SearchBoxStyle" TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
@@ -606,29 +635,35 @@
 
                 <DockPanel x:Name="SidebarPanel" Grid.Column="1" Background="{DynamicResource SidebarBgBrush}">
                     <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                        <StackPanel Orientation="Horizontal">
-                            <Button x:Name="OpenFolderButton" Margin="0,0,7,0" Background="Transparent" BorderThickness="0"
-                                    Cursor="Hand" Click="OpenFolderButton_OnClick" ToolTip="別のディレクトリを開く" Focusable="False">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4" Padding="4,3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Button.Template>
-                                <!-- 絵文字だと環境によって単色描画され背景に埋もれるため、他のアイコンと同じベクターPathにする -->
-                                <Path Data="M0.5,2.5 L3.5,2.5 L4.5,3.5 L9.5,3.5 L9.5,8.5 L0.5,8.5 Z"
-                                      Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.3" StrokeLineJoin="Round"
-                                      Width="13" Height="13" Stretch="Uniform" />
-                            </Button>
-                            <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <DockPanel>
+                            <ToggleButton x:Name="SearchScopeToggleButton" DockPanel.Dock="Right" Content="MD"
+                                          Style="{StaticResource SearchScopeToggleStyle}"
+                                          Click="SearchScopeToggleButton_OnClick" Visibility="Collapsed"
+                                          ToolTip="ONのときMarkdownファイルのみを検索対象にする" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="OpenFolderButton" Margin="0,0,7,0" Background="Transparent" BorderThickness="0"
+                                        Cursor="Hand" Click="OpenFolderButton_OnClick" ToolTip="別のディレクトリを開く" Focusable="False">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4" Padding="4,3">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                    <!-- 絵文字だと環境によって単色描画され背景に埋もれるため、他のアイコンと同じベクターPathにする -->
+                                    <Path Data="M0.5,2.5 L3.5,2.5 L4.5,3.5 L9.5,3.5 L9.5,8.5 L0.5,8.5 Z"
+                                          Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.3" StrokeLineJoin="Round"
+                                          Width="13" Height="13" Stretch="Uniform" />
+                                </Button>
+                                <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DockPanel>
                     </Border>
                     <Grid>
                         <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged"
@@ -646,10 +681,10 @@
                                 <ToggleButton x:Name="SearchModeFileNameButton" Content="ファイル名" Tag="FileName"
                                               Style="{StaticResource SearchModeTabStyle}" IsChecked="True"
                                               Click="SearchModeButton_OnClick" />
-                                <ToggleButton x:Name="SearchModeInFileButton" Content="ファイル内" Tag="InFile"
+                                <ToggleButton x:Name="SearchModeCrossFileButton" Content="全文" Tag="CrossFile"
                                               Style="{StaticResource SearchModeTabStyle}"
                                               Click="SearchModeButton_OnClick" />
-                                <ToggleButton x:Name="SearchModeCrossFileButton" Content="全文" Tag="CrossFile"
+                                <ToggleButton x:Name="SearchModeInFileButton" Content="ファイル内" Tag="InFile"
                                               Style="{StaticResource SearchModeTabStyle}"
                                               Click="SearchModeButton_OnClick" />
                             </UniformGrid>

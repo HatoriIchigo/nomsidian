@@ -31,6 +31,9 @@ public partial class MainWindow : Window
     private const string VaultVirtualHostName = "nomu.vault";
     private static readonly TimeSpan ExternalChangeDebounce = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan OwnWriteIgnoreWindow = TimeSpan.FromMilliseconds(750);
+    // JS側はcamelCase(from/to/lineText等)で送ってくるが、C#のプロパティはPascalCaseのため、
+    // 大文字小文字を区別しないSystem.Text.Jsonの既定動作(区別する)のままだと全滅する。
+    private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     private string _rootDirectory;
     private readonly NomuConfig _config;
@@ -45,6 +48,7 @@ public partial class MainWindow : Window
     private bool _isSwitchingTabProgrammatically;
     private double _lastSidebarWidth = 240;
     private SearchMode _searchMode = SearchMode.FileName;
+    private bool _searchMarkdownOnly;
     private CancellationTokenSource? _crossFileSearchCts;
     private bool _outlineVisible = true;
     private double _lastOutlineWidth = 200;
@@ -636,6 +640,7 @@ public partial class MainWindow : Window
         SearchPanel.Visibility = Visibility.Collapsed;
         FavoritesPanel.Visibility = Visibility.Collapsed;
         OpenFolderButton.Visibility = Visibility.Visible;
+        SearchScopeToggleButton.Visibility = Visibility.Collapsed;
         SidebarHeaderText.Text = Path.GetFileName(_rootDirectory.TrimEnd(Path.DirectorySeparatorChar)) is { Length: > 0 } name
             ? name.ToUpperInvariant()
             : "FILES";
@@ -651,6 +656,7 @@ public partial class MainWindow : Window
         SearchPanel.Visibility = Visibility.Visible;
         FavoritesPanel.Visibility = Visibility.Collapsed;
         OpenFolderButton.Visibility = Visibility.Collapsed;
+        SearchScopeToggleButton.Visibility = Visibility.Visible;
         SidebarHeaderText.Text = "SEARCH";
         SearchBox.Focus();
     }
@@ -664,9 +670,19 @@ public partial class MainWindow : Window
         FileTree.Visibility = Visibility.Collapsed;
         SearchPanel.Visibility = Visibility.Collapsed;
         OpenFolderButton.Visibility = Visibility.Collapsed;
+        SearchScopeToggleButton.Visibility = Visibility.Collapsed;
         FavoritesPanel.Visibility = Visibility.Visible;
         SidebarHeaderText.Text = "FAVORITES";
     }
+
+    private void SearchScopeToggleButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _searchMarkdownOnly = SearchScopeToggleButton.IsChecked == true;
+        RunSearch(SearchBox.Text.Trim());
+    }
+
+    private IEnumerable<FileNode> SearchScopedFiles() =>
+        _searchMarkdownOnly ? _allFiles.Where(f => IsMarkdownFile(f.FullPath)) : _allFiles;
 
     private void LoadFavorites()
     {
@@ -759,7 +775,7 @@ public partial class MainWindow : Window
     {
         SearchResultsList.ItemsSource = query.Length == 0
             ? Array.Empty<FileNode>()
-            : _allFiles.Where(f => f.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+            : SearchScopedFiles().Where(f => f.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     private async Task RunInFileSearchAsync(string query)
@@ -773,7 +789,7 @@ public partial class MainWindow : Window
         var script = $"window.__nomuSetInFileSearchQuery({JsonSerializer.Serialize(query)})";
         var resultJson = await EditorView.CoreWebView2.ExecuteScriptAsync(script);
         var raw = JsonSerializer.Deserialize<string>(resultJson) ?? "[]";
-        var jsMatches = JsonSerializer.Deserialize<List<JsSearchMatch>>(raw) ?? new List<JsSearchMatch>();
+        var jsMatches = JsonSerializer.Deserialize<List<JsSearchMatch>>(raw, CaseInsensitiveJsonOptions) ?? new List<JsSearchMatch>();
 
         var filePath = _activeDocument.FilePath;
         var fileName = _activeDocument.FileName;
@@ -811,7 +827,7 @@ public partial class MainWindow : Window
         {
             await Task.Delay(150, cts.Token);
 
-            var files = _allFiles.ToList();
+            var files = SearchScopedFiles().ToList();
             var matches = await Task.Run(() => SearchAllFiles(files, query, cts.Token), cts.Token);
 
             if (!cts.Token.IsCancellationRequested)
