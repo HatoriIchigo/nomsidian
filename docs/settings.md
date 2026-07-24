@@ -1,6 +1,13 @@
-# nomsidian 設定ファイル（`nomu.lua`）
+# nomsidian 設定ファイル（`nomu.lua`）・設定パネル（GUI）
 
-nomsidian は Lua で書いた設定ファイル `nomu.lua` で、見た目（配色）とフォントをカスタマイズできる。書き方は [WezTerm](https://wezfurlong.org/wezterm/) の `wezterm.lua` に倣っている。
+nomsidian の設定は2層構成になっている。
+
+1. **設定パネル（GUI）** — アクティビティバー最下部の⚙から開く。`%USERPROFILE%\.nomsidian\settings.json` に保存される、初心者向けの画面操作レイヤー。
+2. **`nomu.lua`** — Lua で書く玄人向けの設定ファイル。書き方は [WezTerm](https://wezfurlong.org/wezterm/) の `wezterm.lua` に倣っている。
+
+読み込みは「settings.json → nomu.lua」の順で重ね掛けし、**両方で同じ項目を指定した場合は `nomu.lua` が勝つ**（コードとして明示的に書いた指定を、GUIの一般設定が上書きするのはおかしいため）。`nomu.lua` が上書きしている項目は設定パネル側でグレーアウトされ、「nomu.lua で上書き中のため、ここでは編集できません」と表示される。
+
+この二層構成にしているのは、`nomu.lua` が `nomu.on()` のような任意コードを書ける器も兼ねているため。GUIが安全に部分書き換えできるのは構造化データ（JSON）だけで、任意コードを含みうるLuaファイルを直接書き換えるのは危険なため、あえて保存先を分けている。
 
 ## 置き場所
 
@@ -78,6 +85,8 @@ return config
 `config.theme` / `config.font` は、サイドバー・タブバー・ステータスバー・ファイル一覧など **WPFシェル側の見た目**に反映される。
 
 エディタ本文（Markdownを編集する中央の領域）は CodeMirror6 の内蔵テーマを使っており、現時点では `nomu.lua` のテーマ設定と連動しない（今後の拡張候補）。
+
+設定パネルでの変更は基本的に即座に反映されるが、`config.editor.vim_mode`（vimモードの有効/無効）だけは起動時にCodeMirror6へ一度だけ渡す値のため、変更後は nomsidian の再起動が必要。
 
 ## エラー時の挙動
 

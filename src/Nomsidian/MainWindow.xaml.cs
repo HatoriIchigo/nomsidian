@@ -36,7 +36,8 @@ public partial class MainWindow : Window
     private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     private string _rootDirectory;
-    private readonly NomuConfig _config;
+    private NomuConfig _config;
+    private readonly ConfigOverrides _configOverrides;
     private readonly TaskCompletionSource _editorReadyTcs = new();
     private readonly DispatcherTimer _externalChangeTimer;
     private readonly List<FileNode> _allFiles = new();
@@ -61,13 +62,14 @@ public partial class MainWindow : Window
     private int _cursorCol = 1;
     private string _filetype = string.Empty;
 
-    public MainWindow(string rootDirectory, NomuConfig config)
+    public MainWindow(string rootDirectory, NomuConfig config, ConfigOverrides configOverrides)
     {
         InitializeComponent();
         ApplyConfig(config);
 
         _rootDirectory = rootDirectory;
         _config = config;
+        _configOverrides = configOverrides;
         _externalChangeTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
         _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
         TabStrip.ItemsSource = _openDocuments;
@@ -673,6 +675,25 @@ public partial class MainWindow : Window
         SearchScopeToggleButton.Visibility = Visibility.Collapsed;
         FavoritesPanel.Visibility = Visibility.Visible;
         SidebarHeaderText.Text = "FAVORITES";
+    }
+
+    private void SettingsButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        var window = new SettingsWindow(_config, _configOverrides) { Owner = this };
+        if (window.ShowDialog() != true || window.Result is not { } newConfig)
+        {
+            return;
+        }
+
+        var vimModeChanged = newConfig.Editor.VimMode != _config.Editor.VimMode;
+
+        _config = newConfig;
+        ApplyConfig(_config);
+
+        if (vimModeChanged)
+        {
+            MessageBox.Show("vimモードの変更を反映するには nomsidian を再起動してください。", "nomsidian 設定");
+        }
     }
 
     private void SearchScopeToggleButton_OnClick(object sender, RoutedEventArgs e)

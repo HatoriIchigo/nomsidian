@@ -53,19 +53,19 @@ public static class Program
             return 1;
         }
 
-        NomuConfig config;
+        LoadedConfig loaded;
         try
         {
-            config = ConfigLoader.Load(targetDirectory);
+            loaded = ConfigLoader.Load(targetDirectory);
         }
         catch (ConfigLoadException ex)
         {
             MessageBox.Show(ex.Message, "nomsidian 設定エラー");
-            config = new NomuConfig();
+            loaded = new LoadedConfig { Config = new NomuConfig(), Overrides = ConfigOverrides.None };
         }
 
         var app = new App();
-        return app.Run(new MainWindow(targetDirectory, config));
+        return app.Run(new MainWindow(targetDirectory, loaded.Config, loaded.Overrides));
     }
 
     /// <summary>

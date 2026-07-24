@@ -15,26 +15,31 @@ public sealed class ConfigLoadException : Exception
 }
 
 /// <summary>
-/// nomu.lua (WezTerm の wezterm.lua に倣った設定ファイル) を読み込む。
-/// スクリプトはサンドボックス化した MoonSharp 上で実行し、末尾で return したテーブルから
-/// 既知のキーだけを取り出して <see cref="NomuConfig"/> にマッピングする。
-/// 未知のキー・型不一致は無視してデフォルト値にフォールバックする(将来のキー追加で壊れないように)。
+/// 設定を2層で読み込む。
+/// 1. GUI設定パネル(<see cref="GuiSettingsService"/>、%USERPROFILE%\.nomsidian\settings.json)をベースにする。
+/// 2. nomu.lua (WezTerm の wezterm.lua に倣った玄人向けの設定ファイル) で明示的に指定されたキーだけを
+///    上書きする。スクリプトはサンドボックス化した MoonSharp 上で実行する。
+/// nomu.luaで上書きされたキーは <see cref="ConfigOverrides"/> として返し、GUI設定パネル側で
+/// 「nomu.luaが優先されている」ことを示すために使う。
+/// 未知のキー・型不一致は無視してベース値にフォールバックする(将来のキー追加で壊れないように)。
 /// </summary>
 public static class ConfigLoader
 {
     private const string ConfigFileName = "nomu.lua";
 
-    public static NomuConfig Load(string vaultDirectory)
+    public static LoadedConfig Load(string vaultDirectory)
     {
+        var baseConfig = GuiSettingsService.Load();
+
         var path = ResolveConfigPath(vaultDirectory);
         if (path is null)
         {
-            return new NomuConfig();
+            return new LoadedConfig { Config = baseConfig, Overrides = ConfigOverrides.None };
         }
 
         try
         {
-            return LoadFromFile(path);
+            return LoadFromFile(path, baseConfig);
         }
         catch (Exception ex) when (ex is SyntaxErrorException or ScriptRuntimeException or InterpreterException)
         {
@@ -59,7 +64,7 @@ public static class ConfigLoader
         return File.Exists(userGlobal) ? userGlobal : null;
     }
 
-    private static NomuConfig LoadFromFile(string path)
+    private static LoadedConfig LoadFromFile(string path, NomuConfig baseConfig)
     {
         var script = new Script(CoreModules.Preset_SoftSandbox);
         RegisterNomuApi(script);
@@ -67,12 +72,28 @@ public static class ConfigLoader
         var result = script.DoFile(path);
         var config = result.Type == DataType.Table ? result.Table : null;
 
-        return new NomuConfig
+        var themeTable = config?.Get("theme") is { Type: DataType.Table } themeValue ? themeValue.Table : null;
+        var fontTable = config?.Get("font") is { Type: DataType.Table } fontValue ? fontValue.Table : null;
+        var editorTable = config?.Get("editor") is { Type: DataType.Table } editorValue ? editorValue.Table : null;
+        var statuslineTable = config?.Get("statusline") is { Type: DataType.Table } statuslineValue ? statuslineValue.Table : null;
+        var modeColorsTable = statuslineTable?.Get("mode_colors") is { Type: DataType.Table } modeColorsValue ? modeColorsValue.Table : null;
+
+        var (theme, themeOverrides) = ReadTheme(themeTable, baseConfig.Theme);
+        var (font, fontFamilyOverridden, fontSizeOverridden) = ReadFont(fontTable, baseConfig.Font);
+        var (editor, vimModeOverridden) = ReadEditor(editorTable, baseConfig.Editor);
+        var (statusline, statuslineOverrides) = ReadStatusline(modeColorsTable, baseConfig.Statusline);
+
+        return new LoadedConfig
         {
-            Theme = ReadTheme(config?.Get("theme") is { Type: DataType.Table } themeValue ? themeValue.Table : null),
-            Font = ReadFont(config?.Get("font") is { Type: DataType.Table } fontValue ? fontValue.Table : null),
-            Editor = ReadEditor(config?.Get("editor") is { Type: DataType.Table } editorValue ? editorValue.Table : null),
-            Statusline = ReadStatusline(config?.Get("statusline") is { Type: DataType.Table } statuslineValue ? statuslineValue.Table : null),
+            Config = new NomuConfig { Theme = theme, Font = font, Editor = editor, Statusline = statusline },
+            Overrides = new ConfigOverrides
+            {
+                Theme = themeOverrides,
+                FontFamily = fontFamilyOverridden,
+                FontSize = fontSizeOverridden,
+                EditorVimMode = vimModeOverridden,
+                Statusline = statuslineOverrides,
+            },
         };
     }
 
@@ -91,87 +112,111 @@ public static class ConfigLoader
         script.Globals["nomu"] = nomu;
     }
 
-    private static ThemeConfig ReadTheme(Table? table)
+    private static (ThemeConfig, ThemeOverrides) ReadTheme(Table? table, ThemeConfig baseTheme)
     {
-        var d = ThemeConfig.Default;
         if (table is null)
         {
-            return d;
+            return (baseTheme, new ThemeOverrides());
         }
 
-        return new ThemeConfig
-        {
-            EditorBg = ReadColor(table, "editor_bg", d.EditorBg),
-            SidebarBg = ReadColor(table, "sidebar_bg", d.SidebarBg),
-            PanelBg = ReadColor(table, "panel_bg", d.PanelBg),
-            Border = ReadColor(table, "border", d.Border),
-            Text = ReadColor(table, "text", d.Text),
-            MutedText = ReadColor(table, "muted_text", d.MutedText),
-            Accent = ReadColor(table, "accent", d.Accent),
-            AccentMuted = ReadColor(table, "accent_muted", d.AccentMuted),
-            Hover = ReadColor(table, "hover", d.Hover),
-        };
+        var (editorBg, editorBgOv) = ReadColor(table, "editor_bg", baseTheme.EditorBg);
+        var (sidebarBg, sidebarBgOv) = ReadColor(table, "sidebar_bg", baseTheme.SidebarBg);
+        var (panelBg, panelBgOv) = ReadColor(table, "panel_bg", baseTheme.PanelBg);
+        var (border, borderOv) = ReadColor(table, "border", baseTheme.Border);
+        var (text, textOv) = ReadColor(table, "text", baseTheme.Text);
+        var (mutedText, mutedTextOv) = ReadColor(table, "muted_text", baseTheme.MutedText);
+        var (accent, accentOv) = ReadColor(table, "accent", baseTheme.Accent);
+        var (accentMuted, accentMutedOv) = ReadColor(table, "accent_muted", baseTheme.AccentMuted);
+        var (hover, hoverOv) = ReadColor(table, "hover", baseTheme.Hover);
+
+        return (
+            new ThemeConfig
+            {
+                EditorBg = editorBg,
+                SidebarBg = sidebarBg,
+                PanelBg = panelBg,
+                Border = border,
+                Text = text,
+                MutedText = mutedText,
+                Accent = accent,
+                AccentMuted = accentMuted,
+                Hover = hover,
+            },
+            new ThemeOverrides
+            {
+                EditorBg = editorBgOv,
+                SidebarBg = sidebarBgOv,
+                PanelBg = panelBgOv,
+                Border = borderOv,
+                Text = textOv,
+                MutedText = mutedTextOv,
+                Accent = accentOv,
+                AccentMuted = accentMutedOv,
+                Hover = hoverOv,
+            });
     }
 
-    private static FontConfig ReadFont(Table? table)
+    private static (FontConfig, bool familyOverridden, bool sizeOverridden) ReadFont(Table? table, FontConfig baseFont)
     {
-        var d = FontConfig.Default;
         if (table is null)
         {
-            return d;
+            return (baseFont, false, false);
         }
 
         var family = table.Get("family");
         var size = table.Get("size");
 
-        return new FontConfig
-        {
-            Family = family.Type == DataType.String && family.String.Length > 0 ? family.String : d.Family,
-            Size = size.Type == DataType.Number && size.Number > 0 ? size.Number : d.Size,
-        };
+        var familyOverridden = family.Type == DataType.String && family.String.Length > 0;
+        var sizeOverridden = size.Type == DataType.Number && size.Number > 0;
+
+        return (
+            new FontConfig
+            {
+                Family = familyOverridden ? family.String : baseFont.Family,
+                Size = sizeOverridden ? size.Number : baseFont.Size,
+            },
+            familyOverridden,
+            sizeOverridden);
     }
 
-    private static EditorConfig ReadEditor(Table? table)
+    private static (EditorConfig, bool vimModeOverridden) ReadEditor(Table? table, EditorConfig baseEditor)
     {
         if (table is null)
         {
-            return EditorConfig.Default;
+            return (baseEditor, false);
         }
 
         var vimMode = table.Get("vim_mode");
-        return new EditorConfig
-        {
-            VimMode = vimMode.Type == DataType.Boolean && vimMode.Boolean,
-        };
+        var overridden = vimMode.Type == DataType.Boolean;
+
+        return (
+            new EditorConfig { VimMode = overridden ? vimMode.Boolean : baseEditor.VimMode },
+            overridden);
     }
 
-    private static StatuslineConfig ReadStatusline(Table? table)
+    private static (StatuslineConfig, StatuslineOverrides) ReadStatusline(Table? modeColors, StatuslineConfig baseStatusline)
     {
-        var d = StatuslineConfig.Default;
-        if (table is null)
-        {
-            return d;
-        }
-
-        var modeColors = table.Get("mode_colors") is { Type: DataType.Table } modeColorsValue ? modeColorsValue.Table : null;
         if (modeColors is null)
         {
-            return d;
+            return (baseStatusline, new StatuslineOverrides());
         }
 
-        return new StatuslineConfig
-        {
-            ModeNormal = ReadColor(modeColors, "normal", d.ModeNormal),
-            ModeInsert = ReadColor(modeColors, "insert", d.ModeInsert),
-            ModeVisual = ReadColor(modeColors, "visual", d.ModeVisual),
-            ModeReplace = ReadColor(modeColors, "replace", d.ModeReplace),
-        };
+        var (normal, normalOv) = ReadColor(modeColors, "normal", baseStatusline.ModeNormal);
+        var (insert, insertOv) = ReadColor(modeColors, "insert", baseStatusline.ModeInsert);
+        var (visual, visualOv) = ReadColor(modeColors, "visual", baseStatusline.ModeVisual);
+        var (replace, replaceOv) = ReadColor(modeColors, "replace", baseStatusline.ModeReplace);
+
+        return (
+            new StatuslineConfig { ModeNormal = normal, ModeInsert = insert, ModeVisual = visual, ModeReplace = replace },
+            new StatuslineOverrides { ModeNormal = normalOv, ModeInsert = insertOv, ModeVisual = visualOv, ModeReplace = replaceOv });
     }
 
-    private static string ReadColor(Table table, string key, string fallback)
+    private static (string value, bool overridden) ReadColor(Table table, string key, string fallback)
     {
         var value = table.Get(key);
-        return value.Type == DataType.String && IsValidHexColor(value.String) ? value.String : fallback;
+        return value.Type == DataType.String && IsValidHexColor(value.String)
+            ? (value.String, true)
+            : (fallback, false);
     }
 
     private static bool IsValidHexColor(string text)
