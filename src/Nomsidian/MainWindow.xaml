@@ -27,8 +27,6 @@
                              CornerRadius="0" UseAeroCaptionButtons="True" />
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
-
         <!-- ==================== カラーパレット（editor.html/main.js の CM6 テーマに合わせる） ==================== -->
         <SolidColorBrush x:Key="EditorBgBrush" Color="#1e1e1e" />
         <SolidColorBrush x:Key="SidebarBgBrush" Color="#181819" />
@@ -57,10 +55,6 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-                <Button Content="&#128194;" FontFamily="Segoe UI Emoji" FontSize="10" Margin="6,0,0,0"
-                        Style="{DynamicResource TabCloseButtonStyle}" Tag="{Binding}" Click="OpenDirectoryButton_OnClick"
-                        ToolTip="このディレクトリを開く"
-                        Visibility="{Binding IsDirectory, Converter={StaticResource BoolToVisibilityConverter}}" />
             </StackPanel>
         </HierarchicalDataTemplate>
 
@@ -612,8 +606,29 @@
 
                 <DockPanel x:Name="SidebarPanel" Grid.Column="1" Background="{DynamicResource SidebarBgBrush}">
                     <Border DockPanel.Dock="Top" Padding="14,12,14,10" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                        <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource MutedTextBrush}" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="OpenFolderButton" Margin="0,0,7,0" Background="Transparent" BorderThickness="0"
+                                    Cursor="Hand" Click="OpenFolderButton_OnClick" ToolTip="別のディレクトリを開く" Focusable="False">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="4" Padding="4,3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <!-- 絵文字だと環境によって単色描画され背景に埋もれるため、他のアイコンと同じベクターPathにする -->
+                                <Path Data="M0.5,2.5 L3.5,2.5 L4.5,3.5 L9.5,3.5 L9.5,8.5 L0.5,8.5 Z"
+                                      Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.3" StrokeLineJoin="Round"
+                                      Width="13" Height="13" Stretch="Uniform" />
+                            </Button>
+                            <TextBlock x:Name="SidebarHeaderText" Text="FILES" FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
                     </Border>
                     <Grid>
                         <TreeView x:Name="FileTree" SelectedItemChanged="FileTree_OnSelectedItemChanged"

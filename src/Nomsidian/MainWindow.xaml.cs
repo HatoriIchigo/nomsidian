@@ -330,17 +330,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OpenDirectoryButton_OnClick(object sender, RoutedEventArgs e)
+    private void OpenFolderButton_OnClick(object sender, RoutedEventArgs e)
     {
-        e.Handled = true;
-        if (((FrameworkElement)sender).Tag is FileNode { IsDirectory: true } node)
+        var dialog = new OpenFolderDialog
         {
-            _ = RunAndReportErrorsAsync(() => OpenDirectoryAsync(node.FullPath));
+            Title = "開くディレクトリを選択",
+            InitialDirectory = _rootDirectory,
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            _ = RunAndReportErrorsAsync(() => OpenDirectoryAsync(dialog.FolderName));
         }
     }
 
     /// <summary>
-    /// ファイル一覧のディレクトリ行から、そのディレクトリを新たなvaultルートとして開き直す。
+    /// サイドバーヘッダーの「別のディレクトリを開く」から、選択したディレクトリを新たなvaultルートとして開き直す。
     /// vault仮想ホスト(nomu.vault)のマッピング先も合わせて張り替えるため、内部リンク/画像解決の
     /// 基準ディレクトリ(basePath計算・セキュリティ境界チェック)は常に現在の_rootDirectoryと一致する。
     /// </summary>
@@ -610,6 +615,7 @@ public partial class MainWindow : Window
         FileTree.Visibility = Visibility.Visible;
         SearchPanel.Visibility = Visibility.Collapsed;
         FavoritesPanel.Visibility = Visibility.Collapsed;
+        OpenFolderButton.Visibility = Visibility.Visible;
         SidebarHeaderText.Text = Path.GetFileName(_rootDirectory.TrimEnd(Path.DirectorySeparatorChar)) is { Length: > 0 } name
             ? name.ToUpperInvariant()
             : "FILES";
@@ -624,6 +630,7 @@ public partial class MainWindow : Window
         FileTree.Visibility = Visibility.Collapsed;
         SearchPanel.Visibility = Visibility.Visible;
         FavoritesPanel.Visibility = Visibility.Collapsed;
+        OpenFolderButton.Visibility = Visibility.Collapsed;
         SidebarHeaderText.Text = "SEARCH";
         SearchBox.Focus();
     }
@@ -636,6 +643,7 @@ public partial class MainWindow : Window
         SearchToggleButton.IsChecked = false;
         FileTree.Visibility = Visibility.Collapsed;
         SearchPanel.Visibility = Visibility.Collapsed;
+        OpenFolderButton.Visibility = Visibility.Collapsed;
         FavoritesPanel.Visibility = Visibility.Visible;
         SidebarHeaderText.Text = "FAVORITES";
     }
