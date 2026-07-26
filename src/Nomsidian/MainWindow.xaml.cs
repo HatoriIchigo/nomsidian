@@ -44,6 +44,8 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<OpenDocument> _openDocuments = new();
     private FileSystemWatcher? _fileWatcher;
     private DateTime _ignoreWatcherUntilUtc = DateTime.MinValue;
+    private FileSystemWatcher? _directoryWatcher;
+    private readonly DispatcherTimer _treeReloadTimer;
     private OpenDocument? _activeDocument;
     private bool _sidebarVisible = true;
     private bool _isSwitchingTabProgrammatically;
@@ -72,6 +74,8 @@ public partial class MainWindow : Window
         _configOverrides = configOverrides;
         _externalChangeTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
         _externalChangeTimer.Tick += ExternalChangeTimer_OnTick;
+        _treeReloadTimer = new DispatcherTimer { Interval = ExternalChangeDebounce };
+        _treeReloadTimer.Tick += TreeReloadTimer_OnTick;
         TabStrip.ItemsSource = _openDocuments;
         OutlineList.ItemsSource = _headings;
         FavoritesList.ItemsSource = _favorites;
@@ -79,6 +83,7 @@ public partial class MainWindow : Window
         SourceInitialized += (_, _) => TryEnableDarkTitleBar();
         Loaded += async (_, _) => await RunAndReportErrorsAsync(InitializeEditorAsync);
         ReloadFileTree();
+        SetupDirectoryWatcher(_rootDirectory);
     }
 
     /// <summary>
@@ -285,7 +290,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_activeDocument is null || type is not ("change" or "save"))
+        if (_activeDocument is not { Kind: DocumentKind.Text } || type is not ("change" or "save"))
         {
             return;
         }
@@ -316,6 +321,50 @@ public partial class MainWindow : Window
 
         _allFiles.Clear();
         _allFiles.AddRange(FlattenFiles(root));
+    }
+
+    private void SetupDirectoryWatcher(string directory)
+    {
+        _directoryWatcher?.Dispose();
+        _directoryWatcher = null;
+
+        var watcher = new FileSystemWatcher(directory)
+        {
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+            IncludeSubdirectories = true,
+        };
+        watcher.Created += DirectoryWatcher_OnStructureChanged;
+        watcher.Deleted += DirectoryWatcher_OnStructureChanged;
+        watcher.Renamed += DirectoryWatcher_OnStructureChanged;
+        // 短時間に大量のイベントが発生するとバッファ溢れでError発生し、以降通知が来なくなる。
+        // 取りこぼしを防ぐため、発生時はツリーを丸ごと再構築して整合性を回復する。
+        watcher.Error += DirectoryWatcher_OnError;
+        watcher.EnableRaisingEvents = true;
+        _directoryWatcher = watcher;
+    }
+
+    private void DirectoryWatcher_OnStructureChanged(object sender, FileSystemEventArgs e)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            _treeReloadTimer.Stop();
+            _treeReloadTimer.Start();
+        });
+    }
+
+    private void DirectoryWatcher_OnError(object sender, ErrorEventArgs e)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            _treeReloadTimer.Stop();
+            _treeReloadTimer.Start();
+        });
+    }
+
+    private void TreeReloadTimer_OnTick(object? sender, EventArgs e)
+    {
+        _treeReloadTimer.Stop();
+        ReloadFileTree();
     }
 
     private static IEnumerable<FileNode> FlattenFiles(FileNode node)
@@ -363,6 +412,7 @@ public partial class MainWindow : Window
         EditorView.CoreWebView2.SetVirtualHostNameToFolderMapping(
             VaultVirtualHostName, newRoot, CoreWebView2HostResourceAccessKind.Allow);
         ReloadFileTree();
+        SetupDirectoryWatcher(_rootDirectory);
     }
 
     private void FileTree_OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
@@ -393,6 +443,21 @@ public partial class MainWindow : Window
         }
     }
 
+    private static DocumentKind GetDocumentKind(string path)
+    {
+        if (DirectoryService.IsImageFile(path))
+        {
+            return DocumentKind.Image;
+        }
+
+        if (DirectoryService.IsPdfFile(path))
+        {
+            return DocumentKind.Pdf;
+        }
+
+        return DirectoryService.IsTextFile(path) ? DocumentKind.Text : DocumentKind.Unsupported;
+    }
+
     private async Task OpenFileAsync(string path)
     {
         await _editorReadyTcs.Task;
@@ -404,8 +469,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        var text = FileService.ReadAllText(path);
-        var document = new OpenDocument(path, text);
+        var kind = GetDocumentKind(path);
+        if (kind == DocumentKind.Unsupported)
+        {
+            MessageBox.Show($"「{Path.GetFileName(path)}」はnomsidianで開けないファイル形式です。", "nomsidian");
+            return;
+        }
+
+        var text = kind == DocumentKind.Text ? FileService.ReadAllText(path) : string.Empty;
+        var document = new OpenDocument(path, text, kind);
         _openDocuments.Add(document);
         await ActivateDocumentAsync(document);
     }
@@ -421,14 +493,53 @@ public partial class MainWindow : Window
 
         _activeDocument = document;
         UpdateStatusBar();
-        SetupFileWatcher(document.FilePath);
+
+        if (document.Kind == DocumentKind.Text)
+        {
+            SetupFileWatcher(document.FilePath);
+        }
+        else
+        {
+            _fileWatcher?.Dispose();
+            _fileWatcher = null;
+        }
 
         _isSwitchingTabProgrammatically = true;
         TabStrip.SelectedItem = document;
         _isSwitchingTabProgrammatically = false;
 
-        await SetEditorContentAsync(document.Text, document.FilePath);
-        UpdateHeadings();
+        if (document.Kind == DocumentKind.Text)
+        {
+            await SetEditorContentAsync(document.Text, document.FilePath);
+            UpdateHeadings();
+        }
+        else
+        {
+            await ShowMediaAsync(document);
+            _headings.Clear();
+        }
+    }
+
+    /// <summary>
+    /// 画像/PDFファイルをvault仮想ホスト(nomu.vault)経由のURLに解決し、WebView2側の
+    /// メディアビューア(#media-viewer)に表示を切り替える。CM6ではなくブラウザ本来の
+    /// 画像表示/内蔵PDFビューアに任せることで、実装コストを抑えつつ実用的な表示を得る。
+    /// </summary>
+    private async Task ShowMediaAsync(OpenDocument document)
+    {
+        _gitBranch = null;
+        _filetype = GetFiletypeLabel(document.FilePath);
+        UpdateStatusBar();
+
+        var relativePath = Path.GetRelativePath(_rootDirectory, document.FilePath)
+            .Replace(Path.DirectorySeparatorChar, '/');
+        var encodedSegments = relativePath.Split('/').Select(Uri.EscapeDataString);
+        var url = $"https://{VaultVirtualHostName}/{string.Join("/", encodedSegments)}";
+
+        var script = document.Kind == DocumentKind.Image
+            ? $"window.__nomuShowImage({JsonSerializer.Serialize(url)})"
+            : $"window.__nomuShowPdf({JsonSerializer.Serialize(url)})";
+        await EditorView.CoreWebView2.ExecuteScriptAsync(script);
     }
 
     private void TabStrip_OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -517,6 +628,8 @@ public partial class MainWindow : Window
         ".ini" or ".cfg" => "ini",
         ".sh" or ".bat" or ".ps1" => "shell",
         ".sql" => "sql",
+        ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" or ".svg" or ".ico" => "image",
+        ".pdf" => "pdf",
         _ => string.Empty,
     };
 
@@ -880,6 +993,11 @@ public partial class MainWindow : Window
         {
             token.ThrowIfCancellationRequested();
 
+            if (!DirectoryService.IsTextFile(file.FullPath))
+            {
+                continue;
+            }
+
             string text;
             try
             {
@@ -1103,6 +1221,7 @@ public partial class MainWindow : Window
     {
         await RunAndReportErrorsAsync(SaveActiveDocumentIfDirtyAsync);
         _fileWatcher?.Dispose();
+        _directoryWatcher?.Dispose();
         _closeConfirmed = true;
         Close();
     }

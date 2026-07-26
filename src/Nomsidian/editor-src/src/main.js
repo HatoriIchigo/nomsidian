@@ -1101,12 +1101,51 @@ window.__nomuInit = function () {
 };
 
 window.__nomuSetContent = function (text, isMarkdown, filePath) {
+    window.__nomuShowEditor();
+
     gitBaseText = null;
     view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: text },
         selection: { anchor: 0 },
         effects: [modeCompartment.reconfigure(modeExtensions(isMarkdown, filePath)), setGitBaseEffect.of(null)],
     });
+};
+
+// ---- 画像/PDFビューア(サイドバーから画像/PDFファイルを直接開いた場合) ----
+// CM6エディタは編集不可能なバイナリファイルの表示には向かないため、
+// #editor を隠して #media-viewer 側に <img>/<iframe> を差し替える方式にしている。
+window.__nomuShowImage = function (url) {
+    document.getElementById("editor").style.display = "none";
+    const viewer = document.getElementById("media-viewer");
+    const pdf = document.getElementById("media-pdf");
+    const img = document.getElementById("media-image");
+    pdf.style.display = "none";
+    pdf.src = "about:blank";
+    img.src = url;
+    img.style.display = "block";
+    viewer.style.display = "flex";
+};
+
+window.__nomuShowPdf = function (url) {
+    document.getElementById("editor").style.display = "none";
+    const viewer = document.getElementById("media-viewer");
+    const img = document.getElementById("media-image");
+    img.style.display = "none";
+    img.src = "";
+    const pdf = document.getElementById("media-pdf");
+    pdf.src = url;
+    pdf.style.display = "block";
+    viewer.style.display = "flex";
+};
+
+window.__nomuShowEditor = function () {
+    const viewer = document.getElementById("media-viewer");
+    if (viewer.style.display === "none") return;
+
+    viewer.style.display = "none";
+    document.getElementById("media-image").src = "";
+    document.getElementById("media-pdf").src = "about:blank";
+    document.getElementById("editor").style.display = "block";
 };
 
 window.__nomuGetContent = function () {

@@ -23,6 +23,32 @@ public static class DirectoryService
         ".sh", ".ps1", ".bat", ".sql",
     };
 
+    private static readonly HashSet<string> ImageFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico",
+    };
+
+    private static readonly HashSet<string> PdfFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf",
+    };
+
+    public static bool IsTextFile(string path) => TextFileExtensions.Contains(Path.GetExtension(path)) || IsDotfile(path);
+
+    /// <summary>
+    /// .gitignore や .editorconfig のように、ファイル名がドットで始まり他に拡張子を持たないファイル。
+    /// Path.GetExtension はこれらをファイル名全体として返すため、別途テキスト扱いにする。
+    /// </summary>
+    private static bool IsDotfile(string path)
+    {
+        var name = Path.GetFileName(path);
+        return name.Length > 1 && name[0] == '.' && name.IndexOf('.', 1) < 0;
+    }
+
+    public static bool IsImageFile(string path) => ImageFileExtensions.Contains(Path.GetExtension(path));
+
+    public static bool IsPdfFile(string path) => PdfFileExtensions.Contains(Path.GetExtension(path));
+
     public static FileNode BuildTree(string rootDirectory)
     {
         var root = new FileNode
@@ -39,7 +65,24 @@ public static class DirectoryService
 
     private static void PopulateChildren(FileNode parent, string directory)
     {
-        foreach (var dir in Directory.EnumerateDirectories(directory).OrderBy(d => d))
+        List<string> subdirectories;
+        List<string> files;
+        try
+        {
+            subdirectories = Directory.EnumerateDirectories(directory).OrderBy(d => d).ToList();
+            files = Directory.EnumerateFiles(directory).OrderBy(f => f).ToList();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // AppData\Local\Application Data 等、権限が拒否されたジャンクションはスキップする
+            return;
+        }
+        catch (IOException)
+        {
+            return;
+        }
+
+        foreach (var dir in subdirectories)
         {
             var dirNode = new FileNode
             {
@@ -54,9 +97,7 @@ public static class DirectoryService
             }
         }
 
-        foreach (var file in Directory.EnumerateFiles(directory)
-                     .Where(f => TextFileExtensions.Contains(Path.GetExtension(f)))
-                     .OrderBy(f => f))
+        foreach (var file in files)
         {
             parent.Children.Add(new FileNode
             {

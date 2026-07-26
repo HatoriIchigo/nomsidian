@@ -55,6 +55,15 @@ public sealed class FileIconConverter : IValueConverter
         [".ps1"] = "\U0001F4BB",
         [".sql"] = "\U0001F5C4️",
         [".txt"] = "\U0001F4C4",
+        [".png"] = "\U0001F5BC️",
+        [".jpg"] = "\U0001F5BC️",
+        [".jpeg"] = "\U0001F5BC️",
+        [".gif"] = "\U0001F5BC️",
+        [".bmp"] = "\U0001F5BC️",
+        [".webp"] = "\U0001F5BC️",
+        [".svg"] = "\U0001F5BC️",
+        [".ico"] = "\U0001F5BC️",
+        [".pdf"] = "\U0001F4D5",
     };
 
     private const string DirectoryIcon = "\U0001F4C1";

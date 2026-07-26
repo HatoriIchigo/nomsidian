@@ -4,17 +4,28 @@ using System.Runtime.CompilerServices;
 
 namespace Nomsidian;
 
+public enum DocumentKind
+{
+    Text,
+    Image,
+    Pdf,
+    Unsupported,
+}
+
 public sealed class OpenDocument : INotifyPropertyChanged
 {
     private string _filePath;
     private string _text;
     private bool _isDirty;
 
-    public OpenDocument(string filePath, string text)
+    public OpenDocument(string filePath, string text, DocumentKind kind = DocumentKind.Text)
     {
         _filePath = filePath;
         _text = text;
+        Kind = kind;
     }
+
+    public DocumentKind Kind { get; }
 
     public string FilePath
     {
