@@ -30,19 +30,26 @@ C# (.NET) で実装し、Windows ローカル環境で動作するデスクト�
 | `nomu .` | カレントディレクトリを開く |
 | `nomu <dir>` | 指定したディレクトリを開く（相対パス／絶対パス両対応） |
 | `nomu --version` | バージョン番号を標準出力に表示して終了する（GUIは起動しない） |
+| `nomu --update` | ソースから最新版を取得・再ビルドして自身を更新する（GUIは起動しない）。詳細は「自己更新」節を参照 |
 | `nomu`（引数なし） | 使い方を表示するか、あるいは直近に開いたディレクトリを開く（要検討・v1では前者を採用） |
+
+内部モード（ユーザ非公開）:
+
+- `nomu --apply-update ...` … `--update` が publish した新バイナリから起動され、インストール先の実行体を置換する
+- `nomu --health` … ランタイムが正常起動できれば 0 を返す（自己更新のロールバック判定に使う）
 
 引数解析の方針:
 
 - 第1引数がディレクトリパスとして存在しない場合、またはディレクトリでない場合はエラーメッセージを表示して終了する（GUIは起動しない）
-- `--version` は他の引数より優先し、指定があれば即座にバージョンを表示して終了する
+- `--version` / `--update` / `--apply-update` / `--health` は他の引数より優先し、指定があれば GUI を起動せず処理して終了する
 
 ## 動作環境
 
 - OS: Windows 10/11
 - ランタイム: .NET 10（このマシンにインストール済みの SDK/ランタイムに合わせる。将来 .NET 8 LTS 環境で動かす場合は `net8.0-windows` に変更する）
-- 配布形態: ローカル実行の自己完結型デスクトップアプリ（ネットワーク通信なし）
-- ビルド時のみ Node.js（CodeMirror6 エディタ本体を esbuild でバンドルするため）。実行時に Node.js は不要
+- 配布形態: ローカル実行の自己完結型デスクトップアプリ。通常動作ではネットワーク通信を行わない
+- 例外として `nomu --update`（自己更新）実行時のみ GitHub からソースを取得する。更新は明示コマンドでのみ発動し、常駐チェックや自動送信は行わない
+- ビルド時のみ Node.js（CodeMirror6 エディタ本体を esbuild でバンドルするため）。通常の実行時に Node.js は不要（`--update` 時のみ、editor を再ビルドするため git / .NET SDK / Node.js を要求する）
 
 ## 技術スタック
 
@@ -161,6 +168,9 @@ nomsidian/
 │       ├── App.cs                   # Application継承のみ（App.xamlは持たない）
 │       ├── MainWindow.xaml
 │       ├── MainWindow.xaml.cs
+│       ├── Config/
+│       │   ├── NomuConfig.cs        # 設定値のPOCO（テーマ/フォント）
+│       │   └── ConfigLoader.cs      # nomu.lua の読み込み（MoonSharp）
 │       ├── Services/
 │       │   ├── FileService.cs       # ファイル読み書き
 │       │   └── DirectoryService.cs  # ディレクトリ配下の.md一覧取得
@@ -178,10 +188,107 @@ nomsidian/
 
 `Nomsidian.csproj` の `AssemblyName` を `nomu` にしているため、ビルド成果物は `nomu.exe` になる。`nomu` というコマンド名で使うには、出力先（`bin/Debug(or Release)/net10.0-windows/`）をPATHに追加するか、任意のPATH配下に `nomu.exe` をコピー／配置する。
 
+## 自己更新（`nomu --update`）
+
+ai-harness-main の SelfUpdater を参考にした「ソース再ビルド型」の自己更新。稼働中の実行ファイルは自分自身を上書きできない（Windows はロック）ため、**新バイナリ自身を applier にする 2 段構え**で置換する。実装は `src/Nomsidian/Install/SelfUpdater.cs`、CLI 分岐は `Program.cs`。
+
+### 前提
+
+`--update` 実行環境に `git` / `.NET SDK`（`dotnet`）が必要。`npm`（Node.js）があれば editor バンドルを再ビルドし、無ければリポジトリ追跡済みの `Assets/webui` をそのまま使う。単一ファイル発行された `nomu.exe` から実行している必要がある（`dotnet <dll>` 経由は置換対象を特定できずスキップ）。
+
+### 手順
+
+1. **`--update`（稼働中の実行体）**
+   1. `git` / `dotnet` の存在と、自身が単一ファイル実行体であることを確認する
+   2. リポジトリを一時ディレクトリへ `git clone`（shallow）する
+   3. clone 済み `HEAD` の sha と現行バイナリに埋め込まれた sha を比較し、一致すれば「既に最新」として終了する
+   4. `npm` があれば `editor-src` を `npm ci` + esbuild で再バンドルし `Assets/webui` を更新する
+   5. `dotnet publish -c Release -r <rid> --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true` で単一ファイルを一時ディレクトリへ発行する（`SourceRevisionId` に sha を埋め込む）
+   6. 発行した新バイナリを `--health` で起動検証する
+   7. 新バイナリを `--apply-update` モードで detached 起動し、自身は即終了して実行体ロックを解放する
+2. **`--apply-update`（一時ディレクトリの新バイナリ）**
+   1. 旧 `--update` プロセスの終了を待つ
+   2. インストール先の実行体を `.bak` へ退避する
+   3. 新バイナリで上書きする（ロック解放前は失敗し得るためリトライ）
+   4. 置換後に `--health` で起動検証し、失敗したら `.bak` からロールバックする
+   5. 一時ディレクトリを掃除する。結果は実行体隣の `update.log` に記録する
+
+### 設計上のポイント
+
+- **Content の同梱**: `-p:IncludeAllContentForSelfExtract=true` で `Assets/webui`（editor バンドル）も単一 exe に取り込むため、**exe 1 個の置換で更新が完結**する。実行時は self-extract 先が `AppContext.BaseDirectory` になるので `MainWindow` の webui 参照はそのまま動く
+- **バージョン識別**: 発行時に `-p:SourceRevisionId=<sha>` を埋め、`nomu --version` は `0.1.0+<sha 先頭7桁>` を表示する。これを「既に最新」判定にも使う
+- **GUI アプリゆえ daemon 再起動は不要**: ai-harness-main の daemon 停止／再起動処理は移植していない
+- **トリガーは明示コマンドのみ**: 起動時の自動チェックは行わない（設計方針「通常動作ではネットワーク通信なし」を維持するため）
+
+## 設定ファイル（`nomu.lua`）
+
+WezTerm の `wezterm.lua` に倣い、設定ファイルを Lua スクリプトとして書く方式を採用する。実装は `src/Nomsidian/Config/`（`NomuConfig.cs` / `ConfigLoader.cs`）。
+
+### 採用ライブラリ
+
+**MoonSharp**（純C#実装のLuaインタプリタ）を使用する。NLua/KeraLua はネイティブ `lua5x.dll` を要求し、`nomu --update` の自己更新節にある「単一ファイル自己完結型 exe に全部同梱する」方針（`IncludeAllContentForSelfExtract`）と相性が悪いため不採用とした。
+
+### 探索順・書式
+
+1. 開いた vault 直下の `nomu.lua`
+2. なければ `%USERPROFILE%\.nomsidian\nomu.lua`
+3. どちらも無ければ全項目デフォルト値で起動する
+
+スクリプトは `wezterm.lua` と同じ書き味で、末尾で設定テーブルを `return` する。
+
+```lua
+local config = {}
+
+config.theme = {
+    editor_bg = "#12141a",
+    sidebar_bg = "#0e1016",
+    panel_bg = "#181b22",
+    border = "#2a2e3a",
+    text = "#e3e6ee",
+    muted_text = "#7d8494",
+    accent = "#57c7ff",
+    accent_muted = "#2c5570",
+    hover = "#232733",
+}
+
+config.font = {
+    family = "Yu Gothic UI",
+    size = 12,
+}
+
+return config
+```
+
+`sample/nomu.lua` に動作確認用の実例を置いている。
+
+### ホストAPI（グローバル `nomu` テーブル）
+
+MoonSharpの`Script`に注入する。現時点では以下のみ:
+
+- `nomu.version` — 表示バージョン文字列
+- `nomu.on(event, fn)` — 将来のイベントフック（ファイルを開いた時・保存前など）向けの器。**登録は受け付けるが現時点では発火しない**
+- `nomu.action` — 将来のキーバインド用アクション定数の器（現時点では空テーブル）
+
+これらはプラグイン機構（「今後の拡張」参照）への布石として型・シグネチャだけ先に用意してある。
+
+### サンドボックス
+
+`CoreModules.Preset_SoftSandbox` でスクリプトを実行し、`io`/`os` 系の危険なモジュールを外す。設定ファイルはローカルユーザ自身が書く前提だが、事故防止（コピペした設定に予期せぬファイル操作が紛れ込む等）のため制限している。
+
+### 反映範囲（v1）
+
+- **反映される**: WPFシェル側の配色（サイドバー・パネル・境界線・アクセント・タブ/選択ハイライト）とウィンドウ全体のフォント（`MainWindow.xaml`の対象ブラシは`DynamicResource`化し、`ApplyConfig`でリソースエントリを差し替える方式。WPFはリソース中の`Brush`を自動`Freeze`するため、既存ブラシの`Color`を直接書き換えるのではなく新しい`SolidColorBrush`でエントリごと置き換える必要があった）
+- **反映されない**: CodeMirror6エディタ本体（`editor-src/src/main.js`の`nomuTheme`）の配色はハードコードされたままで、`nomu.lua`のテーマとは独立している。エディタ側の動的テーマ同期は未実装（今後の拡張候補）
+
+### エラー時の挙動
+
+構文エラー・実行時エラーは`ConfigLoadException`として`Program.cs`まで伝播し、`MessageBox`でエラー内容を表示した上でデフォルト設定（全項目既定値）で起動を継続する（WezTermのエラーオーバーレイと同様の「壊れた設定でも起動は諦めない」思想）。
+
 ## 今後の拡張（v1以降の候補）
 
 - `[[WikiLink]]` 形式のファイル間リンクとバックリンク表示、グラフビュー
 - 複数ファイルのタブ表示・同時編集
 - ダーク／ライトテーマ切り替え
 - 数式表示（KaTeX/MathJax連携）
-- プラグイン機構
+- プラグイン機構（`nomu.on`/`nomu.action`の器を実処理に繋げる。イベント発火・アクション実行・キーバインド設定など）
+- CodeMirror6エディタ本体の配色を`nomu.lua`のテーマ設定と同期する（現状はWPFシェル側のみ反映）

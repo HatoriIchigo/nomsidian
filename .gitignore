@@ -13,3 +13,5 @@ node_modules/
 .vs/
 *.suo
 Thumbs.db
+
+sample/

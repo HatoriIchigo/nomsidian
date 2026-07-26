@@ -13,6 +13,8 @@
 - [x] プロジェクト雛形作成
 - [ ] エディタ実装確認
 
+# test
+
 ## コード
 
 ```csharp
@@ -27,3 +29,20 @@ Console.WriteLine("Hello, nomsidian!");
 | B | 2 |
 
 > 引用テキストのテストです。
+
+## link test
+
+- [Yahoo Japan](http://www.yahoo.co.jp)
+- 
+
+## Mermaid
+
+```mermaid
+graph LR
+  A[開始] --> B{ログイン済み?}
+  B -->|Yes| C[ダッシュボード表示]
+  B -->|No| D[ログイン画面へ]
+  D --> E[ログイン処理]
+  E --> C
+```
+
